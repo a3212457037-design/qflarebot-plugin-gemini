@@ -81,7 +81,12 @@ export async function getInteraction(id: string, config: Config, fetcher: typeof
 export function interactionAnswer(result: Record<string, unknown>, config: Config, search?: SearchResult[]): string {
   if (!['completed', 'incomplete'].includes(String(result.status))) throw new GeminiError('response')
   // thought / user_input / tool steps、签名、错误原文一律不发送。
-  const text = (Array.isArray(result.steps) ? result.steps : []).flatMap((step) => {
+  const steps = Array.isArray(result.steps) ? result.steps : []
+  // GET 会包含显式输入的历史 model_output/user_input。只取最后一次用户输入之后
+  // 的新输出；只返回生成步骤的响应没有 user_input，此时保留全部生成输出。
+  let lastInput = -1
+  for (let i = steps.length - 1; i >= 0; i--) if (object(steps[i]).type === 'user_input') { lastInput = i; break }
+  const text = steps.slice(lastInput + 1).flatMap((step) => {
     const s = object(step)
     return s.type === 'model_output' && Array.isArray(s.content) ? s.content.flatMap((part) => {
       const p = object(part)

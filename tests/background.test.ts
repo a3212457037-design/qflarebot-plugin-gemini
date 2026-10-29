@@ -72,6 +72,25 @@ describe('Interactions 官方 REST', () => {
     expect(text).toContain('正文'); expect(text).toContain('未完成')
     expect(text).not.toContain(config.apiKey); expect(text).not.toContain(config.tavilyApiKey); expect(text).not.toContain('秘密思考')
   })
+  it('GET返回历史Step时绝不把旧模型回答拼进本轮答案',()=>{
+    const resource={id:'v1_test',status:'completed',steps:[
+      {type:'user_input',content:[{type:'text',text:'今天日期'}]},
+      {type:'model_output',content:[{type:'text',text:'旧日历回答'}]},
+      {type:'user_input',content:[{type:'text',text:'音乐问题'}]},
+      {type:'model_output',content:[{type:'text',text:'旧歌手回答'}]},
+      {type:'user_input',content:[{type:'text',text:'4乘4幻方问题'}]},
+      {type:'thought',summary:[{type:'text',text:'内部思考'}]},
+      {type:'model_output',content:[{type:'text',text:'本轮答案：'}]},
+      {type:'model_output',content:[{type:'text',text:'7040种'}]},
+    ]}
+    expect(interactionAnswer(resource,config)).toBe('本轮答案：7040种')
+  })
+  it('本轮无新输出时不以历史答案伪装成功',()=>{
+    expect(()=>interactionAnswer({status:'completed',steps:[
+      {type:'model_output',content:[{type:'text',text:'旧答案'}]},
+      {type:'user_input',content:[{type:'text',text:'新问题'}]},
+    ]},config)).toThrow('AI 暂未返回有效回答')
+  })
   it.each([301, 302, 307, 308])('HTTP %s 不跟随不重发', async (status) => {
     const f = vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status, headers: { location: 'https://evil.test' } }))
     await expect(createInteraction('问题', config, f)).rejects.toMatchObject({ code: 'request' }); expect(f).toHaveBeenCalledTimes(1)
