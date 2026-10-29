@@ -26,14 +26,19 @@ const { outputFiles } = await build({
               return Response.json({results: [{url: 'https://source.test/', title: '来源', content: '搜索资料'}]});
             }
             sent = JSON.parse(init.body);
-            return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Workers 回答成功' }] }, groundingMetadata: { groundingChunks: [{web: {uri: 'https://source.test/', title: '来源'}}] } }] });
+            return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: url.searchParams.get('mode') === 'long' ? '中文😀'.repeat(2000) : 'Workers 回答成功' }] }, groundingMetadata: { groundingChunks: [{web: {uri: 'https://source.test/', title: '来源'}}] } }] });
           });
           const scene = url.pathname.slice(1);
           const atMe = url.searchParams.get('at') === '1';
           const session = { scene, event: scene === 'c2c' ? 'qq.c2c.message' : atMe ? 'qq.group.at_message' : 'qq.group.message', targetId: scene === 'group' ? 'test-group' : 'test', attachments: [], content: url.searchParams.get('tavily') === '1' ? '最新新闻' : '你好', atMe, canReply: true, botId: 'test', userId: 'test' };
+          const replies = [];
+          session.reply = async (text) => {
+            replies.push(text);
+            return {ok: true, status: 200, raw: null};
+          };
           const data = new Map();
           const writes = [];
-          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000, enableGoogleSearch: true, enableTavilySearch: url.searchParams.get('tavily') === '1', tavilyApiKey: 'local-tavily-test-credential' }, logger: { warn() {} }, kv: {
+          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxOutputTokens: 65536, timeoutMs: 24000, enableGoogleSearch: true, enableTavilySearch: url.searchParams.get('tavily') === '1', tavilyApiKey: 'local-tavily-test-credential' }, logger: { warn() {} }, kv: {
             async get(key) { return data.get(key) ?? null; },
             async put(key, value, options) { data.set(key, JSON.stringify(value)); writes.push({ value, options }); },
             async delete(key) { data.delete(key); }
@@ -45,6 +50,15 @@ const { outputFiles } = await build({
           const result = url.searchParams.get('mode') === 'text'
             ? await plugin.regex[0].handler({ session, ctx, match: ['你'] })
             : await plugin.commands.ai.handler({ session, ctx, argText: '你好' });
+          if (url.searchParams.get('mode') === 'long') {
+            const firstBatch = [...replies];
+            replies.length = 0;
+            const fresh = createGeminiPlugin(async () => { throw Error('more must not call API'); });
+            await fresh.commands.more.handler({session, ctx, argText: ''});
+            return Response.json({firstBatch, secondBatch: replies, calls, tokens: sent.generationConfig.maxOutputTokens,
+              storedText: writes.find((w) => typeof w.value.text === 'string')?.value.text,
+              progress: writes.filter((w) => typeof w.value.offset === 'number' && !('text' in w.value)).map((w) => w.value.offset)});
+          }
           return Response.json({ reply: result ?? null, calls, writes, tools: sent?.tools ?? null, searchSent: searchSent ?? null });
         }
       };
@@ -87,9 +101,20 @@ try {
   assert.equal(failed.reply, '搜索额度不足，请联系机器人管理员。');
   assert.equal(failed.calls, 1);
   assert.equal(failed.writes.length, 1);
+  for (const scene of ['c2c', 'group']) {
+    const result = await (await mf.dispatchFetch(`https://smoke.test/${scene}?at=1&mode=long`)).json();
+    assert.equal(result.firstBatch.length, scene === 'c2c' ? 4 : 5);
+    assert.equal(result.secondBatch.length, scene === 'c2c' ? 4 : 5);
+    assert.ok(result.firstBatch.at(-1).includes('/more'));
+    assert.equal(result.storedText, '中文😀'.repeat(2000));
+    assert.equal(result.calls, 1);
+    assert.equal(result.tokens, 65536);
+    assert.ok(result.progress[1] > result.progress[0]);
+    for (const part of [...result.firstBatch, ...result.secondBatch]) assert.ok(new TextEncoder().encode(part).byteLength <= 2000);
+  }
   const reset = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=reset')).json()
   assert.deepEqual(reset, { reply: '当前会话的对话历史已清除。', calls: 0, entries: 0 })
-  console.log('本地 workerd：11 项通过，覆盖普通文本、命令、KV/TTL、Tavily 成功/失败、Google 停用与 reset（未连接 Tavily / Google / QQ）')
+  console.log('本地 workerd：13 项通过，覆盖普通文本、命令、KV/TTL、Tavily、长回复分段/more、Google 停用与 reset（未连接 Tavily / Google / QQ）')
 } finally {
   await mf.dispose()
 }

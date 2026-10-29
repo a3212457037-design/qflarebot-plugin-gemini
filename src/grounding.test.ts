@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMockContext, createMockSession } from '@qqbot/sdk/testing'
 import { normalizePlugin } from '@qqbot/sdk'
 import { defaultConfig, ENDPOINT, readConfig, type Config } from './config.js'
-import { askGemini, limitReply, tips } from './gemini.js'
+import { askGemini, cleanReply, tips } from './gemini.js'
 import { appendSources } from './grounding.js'
 import { message } from './history.js'
 import { createGeminiPlugin } from './index.js'
@@ -48,7 +48,7 @@ describe('Google 原生搜索停用与共用来源格式化', () => {
       source('http://b.test/', '来源二'), source('https://c.test/', '第三条'),
     ]))
     const payload = await (await fetcher('https://mock.test')).json() as { candidates: [{ groundingMetadata: unknown }] }
-    const reply = appendSources('最新消息已确认。', payload.candidates[0].groundingMetadata, 400, config.apiKey)
+    const reply = appendSources('最新消息已确认。', payload.candidates[0].groundingMetadata, config.apiKey)
     expect(reply).toBe('最新消息已确认。\n来源：\n来源一 https://a.test/page\n来源二 http://b.test/')
     for (const privateText of ['第三条', '不应输出的查询', '内部内容', 'groundingMetadata']) expect(reply).not.toContain(privateText)
   })
@@ -73,7 +73,7 @@ describe('Google 原生搜索停用与共用来源格式化', () => {
     ], `回答 ${key} ${encodeURIComponent(key)}`))
     const payload = await (await fetcher('https://mock.test')).json() as { candidates: [{ groundingMetadata: unknown }] }
     const base = await askGemini('问题', { ...config, apiKey: key }, vi.fn<typeof fetch>().mockResolvedValue(response([], `回答 ${key} ${encodeURIComponent(key)}`)))
-    const reply = appendSources(base, payload.candidates[0].groundingMetadata, 400, key)
+    const reply = appendSources(base, payload.candidates[0].groundingMetadata, key)
     expect(reply).not.toContain(key)
     expect(reply).not.toContain(encodeURIComponent(key))
     expect(reply).not.toContain('https://a.test')
@@ -82,23 +82,16 @@ describe('Google 原生搜索停用与共用来源格式化', () => {
     expect(reply).toContain('[密钥已隐藏]')
   })
 
-  it.each(['短回答', '中'.repeat(490), '😀'.repeat(500)])('来源与正文共用字符/字节上限且正文优先：%s', async (text) => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response([
-      source('https://a.test/', '😀'.repeat(100)), source('https://b.test/', '标题很长'.repeat(100)),
-      source('https://long.test/' + 'x'.repeat(600)),
-    ], text))
-    const payload = await (await fetcher('https://mock.test')).json() as { candidates: [{ groundingMetadata: unknown }] }
-    const reply = appendSources(limitReply(text, 500), payload.candidates[0].groundingMetadata, 500, config.apiKey)
-    expect(reply.startsWith(limitReply(text, 500))).toBe(true)
-    expect(Array.from(reply).length).toBeLessThanOrEqual(500)
-    expect(new TextEncoder().encode(reply).length).toBeLessThanOrEqual(1500)
-    expect(reply).not.toContain('\ufffd')
-    expect(reply).not.toContain('https://long.test/')
+  it.each(['短回答', '中'.repeat(10000), '😀'.repeat(20000)])('正文和两个来源完整保留：%#', async (text) => {
+    const chunks = [source('https://a.test/', '来源一'), source('https://b.test/', '来源二'), source('https://c.test/', '第三个')]
+    const reply = appendSources(cleanReply(text), { groundingChunks: chunks }, config.apiKey)
+    expect(reply).toBe(text + '\n来源：\n来源一 https://a.test/\n来源二 https://b.test/')
+    expect(reply).not.toContain('第三个')
   })
 
-  it('空间不足时省略来源，绝不输出截断 URL 或仅有来源标签', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response([source('https://a.test/long-path')], 'x'.repeat(49)))
-    expect(await askGemini('问题', { ...config, enableGoogleSearch: true, maxReplyChars: 50 }, fetcher)).toBe('x'.repeat(49))
+  it('旧回复字符设置不再限制正文', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response([], 'x'.repeat(10000)))
+    expect(await askGemini('问题', { ...config, maxReplyChars: 50 }, fetcher)).toBe('x'.repeat(10000))
   })
 
   it.each([[400, tips.request], [403, tips.auth], [429, tips.rate], [503, tips.unavailable]] as const)('搜索开启时 HTTP %s 保持原中文提示', async (status, tip) => {

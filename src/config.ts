@@ -3,7 +3,8 @@ import type { JsonSchema } from '@qqbot/sdk'
 export interface Config {
   apiKey: string
   maxInputChars: number
-  maxReplyChars: number
+  /** 兼容旧快照，已停用，不再裁剪回复。 */
+  maxReplyChars?: number
   maxOutputTokens: number
   timeoutMs: number
   ignoredCommandPrefixes: string[]
@@ -17,9 +18,8 @@ export const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models
 export const defaultConfig: Config = {
   apiKey: '',
   maxInputChars: 500,
-  maxReplyChars: 400,
-  maxOutputTokens: 512,
-  timeoutMs: 15000,
+  maxOutputTokens: 65536,
+  timeoutMs: 24000,
   ignoredCommandPrefixes: ['/'],
   enableGoogleSearch: false,
   enableTavilySearch: false,
@@ -28,9 +28,8 @@ export const defaultConfig: Config = {
 
 const ranges = {
   maxInputChars: [1, 1000],
-  maxReplyChars: [50, 500],
-  maxOutputTokens: [64, 1024],
-  timeoutMs: [1000, 15000],
+  maxOutputTokens: [64, 65536],
+  timeoutMs: [1000, 24000],
 } as const
 
 const integer = (key: keyof typeof ranges, title: string) => ({
@@ -47,9 +46,14 @@ export const configSchema: JsonSchema = {
       default: '',
     },
     maxInputChars: integer('maxInputChars', '问题字符上限'),
-    maxReplyChars: integer('maxReplyChars', '回复字符上限'),
-    maxOutputTokens: integer('maxOutputTokens', '生成 Token 上限'),
-    timeoutMs: integer('timeoutMs', 'API 超时（毫秒，最多 15000）'),
+    maxOutputTokens: {
+      ...integer('maxOutputTokens', '生成 Token 上限'),
+      description: '默认使用模型官方上限 65536，只是允许的最大输出量；闲聊仍简洁，详细问题再展开。',
+    },
+    timeoutMs: {
+      ...integer('timeoutMs', 'API 超时（毫秒，最多 24000）'),
+      description: '搜索与模型调用合计最多 24 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。',
+    },
     ignoredCommandPrefixes: {
       type: 'array', title: '跳过的命令前缀', default: ['/'], maxItems: 16,
       items: { type: 'string', minLength: 1, maxLength: 32 },
@@ -71,6 +75,7 @@ export const configSchema: JsonSchema = {
 export function readConfig(value: Config): Config | null {
   if (!value || typeof value !== 'object') return null
   const config = { ...defaultConfig, ...value }
+  delete config.maxReplyChars
   // 保留旧字段的兼容性，但旧配置即使为 true 也不再发送 Google tools。
   config.enableGoogleSearch = false
   if (typeof config.enableTavilySearch !== 'boolean') return null

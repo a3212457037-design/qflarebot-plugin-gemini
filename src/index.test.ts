@@ -29,7 +29,7 @@ describe('QQ 文本问答', () => {
     expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { 'x-goog-api-key': config.apiKey } })
     const body = JSON.parse(init!.body as string)
     expect(body.contents).toEqual([{ role: 'user', parts: [{ text: '你好' }] }])
-    expect(body.generationConfig).toEqual({ maxOutputTokens: 512 })
+    expect(body.generationConfig).toEqual({ maxOutputTokens: 65536 })
     expect(body.tools).toBeUndefined()
     expect(body.cachedContent).toBeUndefined()
     expect(String(init!.body)).not.toContain(config.apiKey)
@@ -99,6 +99,7 @@ describe('QQ 文本问答', () => {
     const first = runCommand(plugin, 'ai', '第一题', { ctx: { config } })
     const busy = await runCommand(plugin, 'ai', '第二题', { session: { userId: 'other' }, ctx: { config } })
     expect(busy.replies[0]).toContain('正在回答')
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
     finish(answer())
     await first
     expect((await runCommand(plugin, 'ai', '第三题', { session: { userId: 'other' }, ctx: { config } })).replies[0]).toContain('太频繁')
@@ -115,7 +116,7 @@ describe('QQ 文本问答', () => {
       .mockImplementation(async () => answer())
     const plugin = createGeminiPlugin(fetcher)
     const request = runCommand(plugin, 'ai', '你好', { ctx: { config } })
-    await vi.advanceTimersByTimeAsync(15000)
+    await vi.advanceTimersByTimeAsync(config.timeoutMs)
     expect((await request).replies).toEqual([tips.timeout])
     expect(fetcher.mock.calls[0]![1]!.signal!.aborted).toBe(true)
     expect((await runCommand(plugin, 'ai', '再试', { ctx: { config } })).replies).toEqual(['你好，我是上分难。'])
@@ -294,13 +295,16 @@ describe('API 错误提示', () => {
     expect((await runCommand(createGeminiPlugin(fetcher), 'ai', '你好', { ctx: { config } })).replies).toEqual(['答案：[密钥已隐藏]'])
   })
 
-  it.each([['长'.repeat(2000), 'STOP'], ['😀'.repeat(600), 'STOP'], ['短回答', 'MAX_TOKENS']])('限制字符和 UTF-8 字节，截断不拆 Unicode', async (text, reason) => {
+  it.each([['长'.repeat(1800), 'STOP'], ['😀'.repeat(1200), 'STOP'], ['短回答', 'MAX_TOKENS']])('完整分段且不拆 Unicode：%#', async (text, reason) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(answer(text, reason))
     const session = await runCommand(createGeminiPlugin(fetcher), 'ai', '你好', { ctx: { config: { ...config, maxReplyChars: 500 } } })
-    const reply = session.replies[0] as string
-    expect(Array.from(reply).length).toBeLessThanOrEqual(500)
-    expect(new TextEncoder().encode(reply).byteLength).toBeLessThanOrEqual(1500)
-    expect(reply).toContain('回答已截短')
-    expect(reply).not.toContain('\ufffd')
+    const replies = session.replies as string[]
+    expect(replies.join('')).toContain(text)
+    for (const reply of replies) {
+      expect(new TextEncoder().encode(reply).byteLength).toBeLessThanOrEqual(2000)
+      expect(reply).not.toContain('\ufffd')
+    }
+    if (reason === 'MAX_TOKENS') expect(replies.join('')).toContain('Token 上限')
+    else expect(replies.join('')).not.toContain('回答已截短')
   })
 })

@@ -28,6 +28,15 @@
       ]
     },
     {
+      "name": "more",
+      "description": "领取长回答剩余正文",
+      "usage": "/more",
+      "scenes": [
+        "c2c",
+        "group"
+      ]
+    },
+    {
       "name": "reset",
       "description": "清除当前对话历史",
       "usage": "/reset",
@@ -75,26 +84,21 @@
         "minimum": 1,
         "maximum": 1000
       },
-      "maxReplyChars": {
-        "type": "integer",
-        "title": "回复字符上限",
-        "default": 400,
-        "minimum": 50,
-        "maximum": 500
-      },
       "maxOutputTokens": {
         "type": "integer",
         "title": "生成 Token 上限",
-        "default": 512,
+        "default": 65536,
         "minimum": 64,
-        "maximum": 1024
+        "maximum": 65536,
+        "description": "默认使用模型官方上限 65536，只是允许的最大输出量；闲聊仍简洁，详细问题再展开。"
       },
       "timeoutMs": {
         "type": "integer",
-        "title": "API 超时（毫秒，最多 15000）",
-        "default": 15000,
+        "title": "API 超时（毫秒，最多 24000）",
+        "default": 24000,
         "minimum": 1000,
-        "maximum": 15000
+        "maximum": 24000,
+        "description": "搜索与模型调用合计最多 24 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。"
       },
       "ignoredCommandPrefixes": {
         "type": "array",
@@ -128,7 +132,6 @@
     "required": [
       "apiKey",
       "maxInputChars",
-      "maxReplyChars",
       "maxOutputTokens",
       "timeoutMs"
     ]
@@ -136,9 +139,8 @@
   "defaultConfig": {
     "apiKey": "",
     "maxInputChars": 500,
-    "maxReplyChars": 400,
-    "maxOutputTokens": 512,
-    "timeoutMs": 15000,
+    "maxOutputTokens": 65536,
+    "timeoutMs": 24000,
     "ignoredCommandPrefixes": [
       "/"
     ],

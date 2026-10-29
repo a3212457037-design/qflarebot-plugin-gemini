@@ -5,6 +5,7 @@ import { askGemini, GeminiError, tips } from './gemini.js'
 import { conversationKey, loadHistory, saveHistory, type ChatMessage } from './history.js'
 import { needsSearch, reserveSearch, searchTavily, TavilyError, SEARCH_INTERVAL_MS } from './tavily.js'
 import { hideKey } from './grounding.js'
+import { deliverAnswer, deliverPending, loadPending, pendingKeys, GENERATION_BUDGET_MS, TURN_BUDGET_MS } from './delivery.js'
 
 export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(...args)) {
   // 只保存冷却时间，不保存问答。Worker isolate 重建或扩容后会重置，非全局强限流。
@@ -44,6 +45,8 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     activeHistoryKey = key
     resetDuringRequest = false
     try {
+      const pending = await loadPending(ctx, session).catch(() => null)
+      if (pending) return '上一条长回答尚未发完，请用 /more 继续领取；或用 /reset 清除后再提新问题。'
       let results
       if (search) {
         if (now < nextSearchAt) throw new TavilyError('rate')
@@ -57,7 +60,9 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
         catch { ctx.logger.warn('Gemini 历史读取失败', { code: 'history_read' }) }
       }
       if (resetDuringRequest) history = []
-      const reply = await askGemini(question, config, fetcher, history, results)
+      const remaining = now + GENERATION_BUDGET_MS - Date.now()
+      if (remaining <= 0) throw new GeminiError('timeout')
+      const reply = await askGemini(question, { ...config, timeoutMs: Math.min(config.timeoutMs, remaining) }, fetcher, history, results)
       if (key && !resetDuringRequest) {
         try {
           await saveHistory(ctx.kv, key, history, question, reply)
@@ -65,7 +70,7 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
           if (resetDuringRequest) await ctx.kv.delete(key)
         } catch { ctx.logger.warn('Gemini 历史保存失败', { code: 'history_write' }) }
       }
-      return reply
+      return await deliverAnswer(session, ctx, reply, now + TURN_BUDGET_MS, () => resetDuringRequest)
     } catch (error) {
       if (error instanceof TavilyError) {
         ctx.logger.warn('Tavily 搜索未完成', { code: error.code })
@@ -105,6 +110,40 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
         scenes: ['c2c', 'group'],
         handler: (input) => chat(input, true),
       },
+      more: {
+        description: '领取长回答剩余正文',
+        usage: '/more',
+        scenes: ['c2c', 'group'],
+        async handler({ session, ctx }) {
+          if ((session.scene !== 'c2c' && session.scene !== 'group') || !session.canReply
+            || (session.scene === 'group' && !session.atMe) || !isMessageEvent(session.event) || session.attachments.length) return
+          if (busy) return 'AI 正在回答，请稍后再问。'
+          const now = Date.now()
+          const user = JSON.stringify([session.botId, session.userId])
+          if (now < nextRequestAt || now < (users.get(user) ?? 0)) return '提问太频繁，请稍后再试。'
+          for (const [id, until] of users) if (until <= now) users.delete(id)
+          if (users.size >= 1024) return 'AI 服务暂时繁忙，请稍后再试。'
+          users.set(user, now + 10000)
+          nextRequestAt = now + 6000
+          busy = true
+          activeHistoryKey = conversationKey(session)
+          resetDuringRequest = false
+          try {
+            const pending = await loadPending(ctx, session)
+            if (!pending) return '当前没有待发送的正文，或已超过 24 小时。'
+            const config = readConfig(ctx.config)
+            if (!config) return 'AI 配置异常，请联系机器人管理员。'
+            // 已保存文本再次做双密钥脱敏；不读取或打印真实密钥。
+            const prefix = hideKey(pending.text.slice(0, pending.offset), config.apiKey, config.tavilyApiKey)
+            pending.text = hideKey(pending.text, config.apiKey, config.tavilyApiKey)
+            pending.offset = prefix.length
+            return await deliverPending(session, ctx, pending, now + TURN_BUDGET_MS, () => resetDuringRequest)
+          } catch {
+            ctx.logger.warn('QQ 待发送正文读取失败', { code: 'pending_read' })
+            return '暂时无法读取剩余正文，请稍后再试。'
+          } finally { activeHistoryKey = null; busy = false }
+        },
+      },
       reset: {
         description: '清除当前对话历史',
         usage: '/reset',
@@ -118,6 +157,8 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
           if (activeHistoryKey === key) resetDuringRequest = true
           try {
             await ctx.kv.delete(key)
+            const keys = pendingKeys(session)
+            if (keys) await Promise.all(keys.map((item) => ctx.kv.delete(item)))
             return '当前会话的对话历史已清除。'
           } catch {
             ctx.logger.warn('Gemini 历史重置失败', { code: 'history_reset' })

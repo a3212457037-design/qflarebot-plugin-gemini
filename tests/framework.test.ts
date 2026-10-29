@@ -178,7 +178,8 @@ describe('官方配置校验和 writeOnly 机制', () => {
   it('默认配置合法、超出边界被拒绝', () => {
     expect(validateConfig(configSchema, config)).toEqual([])
     expect(validateConfig(configSchema, { ...config, timeoutMs: 30000 })).not.toEqual([])
-    expect(validateConfig(configSchema, { ...config, maxReplyChars: 501 })).not.toEqual([])
+    expect(validateConfig(configSchema, { ...config, maxOutputTokens: 65537 })).not.toEqual([])
+    expect(readConfig({ ...config, maxReplyChars: 501 })!.maxReplyChars).toBeUndefined()
     expect(validateConfig(configSchema, { ...config, ignoredCommandPrefixes: [123] })).not.toEqual([])
     expect(readConfig({ ...config, ignoredCommandPrefixes: [''] })).toBeNull()
   })
@@ -201,6 +202,17 @@ describe('官方配置校验和 writeOnly 机制', () => {
 })
 
 describe('Tavily 命令与真实 dispatcher', () => {
+  it.each(['C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'])('%s 的长回答按真实Session分段，不发主动消息或触发双回复', async (type) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ candidates: [{ content: { parts: [{ text: '长'.repeat(6000) }] } }] }))
+    const bot = harness(fetcher)
+    const { replies, report } = await bot.deliver(type, type.startsWith('GROUP') ? '<@123456> /ai 详细解释' : '/ai 详细解释')
+    expect(replies).toHaveLength(type.startsWith('GROUP') ? 5 : 4)
+    expect(replies.at(-1)).toContain('/more')
+    for (const reply of replies) expect(new TextEncoder().encode(reply as string).byteLength).toBeLessThanOrEqual(2000)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(report.errors).toEqual([])
+    expect(report.matched).toEqual([{ plugin: 'gemini', kind: 'command', name: 'ai' }])
+  })
   it.each(['C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'])('%s 的 /search 只搜索/回复一次', async (type) => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).includes('tavily')
       ? Response.json({ results: [{ title: '来源', url: 'https://source.test/', content: '资料' }] })

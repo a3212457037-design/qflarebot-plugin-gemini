@@ -7,6 +7,8 @@ export interface ChatMessage {
 
 export const HISTORY_TTL_SECONDS = 86400
 const MAX_MESSAGES = 12
+// Workers KV 单值上限 25 MiB；不再把模型回答限制成 500 字符。
+export const KV_VALUE_BYTES = 25 * 1024 * 1024
 
 export function conversationKey(session: Pick<Session, 'botId' | 'userId' | 'scene' | 'targetId'>): string | null {
   if (!session.botId || !session.userId) return null
@@ -20,7 +22,7 @@ export function message(role: ChatMessage['role'], text: string): ChatMessage {
 }
 
 export function parseHistory(raw: string | null, now = Date.now()): ChatMessage[] {
-  if (!raw || raw.length > 65536) return []
+  if (!raw || new TextEncoder().encode(raw).byteLength > KV_VALUE_BYTES) return []
   try {
     const value = JSON.parse(raw) as Record<string, unknown> | null
     if (!value || typeof value !== 'object' || Array.isArray(value)) return []
@@ -33,7 +35,7 @@ export function parseHistory(raw: string | null, now = Date.now()): ChatMessage[
       const role = i % 2 === 0 ? 'user' : 'model'
       if (!item || item.role !== role || !Array.isArray(item.parts) || item.parts.length !== 1) return []
       const text = item.parts[0]?.text
-      if (typeof text !== 'string' || !text.trim() || Array.from(text).length > (role === 'user' ? 1000 : 500)) return []
+      if (typeof text !== 'string' || !text.trim() || (role === 'user' && Array.from(text).length > 1000)) return []
       // 只重建已验证的文本字段，不能把存储中的任意元数据带入请求。
       result.push(message(role, text))
     }
@@ -48,5 +50,7 @@ export async function loadHistory(kv: ScopedKV, key: string): Promise<ChatMessag
 export async function saveHistory(kv: ScopedKV, key: string, history: ChatMessage[], question: string, answer: string): Promise<void> {
   const messages = [...history, message('user', question), message('model', answer)].slice(-MAX_MESSAGES)
   // SDK 将 ttl 原样映射为 expirationTtl（秒，最低 60），不是毫秒。
-  await kv.put(key, { updatedAt: Date.now(), messages }, { ttl: HISTORY_TTL_SECONDS })
+  const value = { updatedAt: Date.now(), messages }
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > KV_VALUE_BYTES) throw new Error('History exceeds KV capacity')
+  await kv.put(key, value, { ttl: HISTORY_TTL_SECONDS })
 }

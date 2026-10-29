@@ -154,15 +154,15 @@ describe('自动规则与共享聊天路径', () => {
     for (const secret of [config.apiKey, config.tavilyApiKey, 'https://fake.test', 'https://fake2.test']) expect(reply).not.toContain(secret)
     for (const key of [config.apiKey, config.tavilyApiKey]) expect(String(fetcher.mock.calls[1]![1]!.body)).not.toContain(key)
   })
-  it('最多附两个真实来源，标题不能插入额外 URL，正文和来源共用字符/字节限制', async () => {
-    for (const text of ['短答案', '中'.repeat(490), '😀'.repeat(500)]) {
+  it('最多附两个真实来源，标题不能插入额外 URL，长正文和来源均完整保留', async () => {
+    for (const text of ['短答案', '中'.repeat(1000), '😀'.repeat(1000)]) {
       const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => url === TAVILY_ENDPOINT
         ? searchResponse([item('https://one.test/', '标题 https://fake.test/'), item('https://two.test/'), item('https://three.test/')])
         : modelResponse(text))
       const bot = harness(fetcher); bot.ctx.config.maxReplyChars = 500
-      const reply = await bot.invoke() as string
-      expect(Array.from(reply).length).toBeLessThanOrEqual(500)
-      expect(new TextEncoder().encode(reply).length).toBeLessThanOrEqual(1500)
+      const direct = await bot.invoke()
+      const reply = typeof direct === 'string' ? direct : (JSON.parse((await bot.ctx.kv.get('pending:' + conversationKey(bot.session())!))!) as {text:string}).text
+      expect(reply).toContain(text)
       expect(reply).not.toContain('https://fake.test')
       expect(reply).not.toContain('https://three.test')
       if (text === '短答案') {
