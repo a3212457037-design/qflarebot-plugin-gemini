@@ -3,6 +3,7 @@ import { createMockContext, createMockSession } from '@qqbot/sdk/testing'
 import { normalizePlugin } from '@qqbot/sdk'
 import { defaultConfig, ENDPOINT, readConfig, type Config } from './config.js'
 import { askGemini, limitReply, tips } from './gemini.js'
+import { appendSources } from './grounding.js'
 import { message } from './history.js'
 import { createGeminiPlugin } from './index.js'
 
@@ -15,7 +16,7 @@ function response(chunks?: unknown, text = '最新消息已确认。', extra = {
 }
 afterEach(() => vi.useRealTimers())
 
-describe('Google Search 原生工具与来源', () => {
+describe('Google 原生搜索停用与共用来源格式化', () => {
   it('默认关闭且旧配置缺字段时正常调用，不发送 tools，不改变普通回复', async () => {
     const { enableGoogleSearch: _enabled, ...oldConfig } = config
     const normalized = readConfig(oldConfig as Config)!
@@ -25,7 +26,7 @@ describe('Google Search 原生工具与来源', () => {
     expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).not.toHaveProperty('tools')
   })
 
-  it('开启后仅增加 google_search 工具，保留历史、固定端点、manual 和生成设置', async () => {
+  it('旧 Google 开关也不发送 tools，保留历史、固定端点、manual 和生成设置', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response())
     const history = [message('user', '上轮问题'), message('model', '上轮回答')]
     await askGemini('新问题', { ...config, enableGoogleSearch: true }, fetcher, history)
@@ -33,7 +34,8 @@ describe('Google Search 原生工具与来源', () => {
       'content-type': 'application/json', 'x-goog-api-key': config.apiKey,
     } }))
     const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string)
-    expect(body.tools).toEqual([{ google_search: {} }])
+    expect(body).not.toHaveProperty('tools')
+    expect(readConfig({ ...config, enableGoogleSearch: true })!.enableGoogleSearch).toBe(false)
     expect(body.contents).toEqual([...history, message('user', '新问题')])
     expect(body.generationConfig).toEqual({ maxOutputTokens: config.maxOutputTokens })
     expect(body.systemInstruction.parts[0].text).toContain('上分难')
@@ -45,7 +47,8 @@ describe('Google Search 原生工具与来源', () => {
       source('https://a.test/page#one', '来源一'), source('https://a.test/page#two', '重复'),
       source('http://b.test/', '来源二'), source('https://c.test/', '第三条'),
     ]))
-    const reply = await askGemini('问题', { ...config, enableGoogleSearch: true }, fetcher)
+    const payload = await (await fetcher('https://mock.test')).json() as { candidates: [{ groundingMetadata: unknown }] }
+    const reply = appendSources('最新消息已确认。', payload.candidates[0].groundingMetadata, 400, config.apiKey)
     expect(reply).toBe('最新消息已确认。\n来源：\n来源一 https://a.test/page\n来源二 http://b.test/')
     for (const privateText of ['第三条', '不应输出的查询', '内部内容', 'groundingMetadata']) expect(reply).not.toContain(privateText)
   })
@@ -68,7 +71,9 @@ describe('Google Search 原生工具与来源', () => {
       source(`https://a.test/?key=${key}`), source(`https://b.test/?key=${encodeURIComponent(key)}`),
       source('https://c.test/', `来源 ${key}`),
     ], `回答 ${key} ${encodeURIComponent(key)}`))
-    const reply = await askGemini('问题', { ...config, apiKey: key, enableGoogleSearch: true }, fetcher)
+    const payload = await (await fetcher('https://mock.test')).json() as { candidates: [{ groundingMetadata: unknown }] }
+    const base = await askGemini('问题', { ...config, apiKey: key }, vi.fn<typeof fetch>().mockResolvedValue(response([], `回答 ${key} ${encodeURIComponent(key)}`)))
+    const reply = appendSources(base, payload.candidates[0].groundingMetadata, 400, key)
     expect(reply).not.toContain(key)
     expect(reply).not.toContain(encodeURIComponent(key))
     expect(reply).not.toContain('https://a.test')
@@ -82,7 +87,8 @@ describe('Google Search 原生工具与来源', () => {
       source('https://a.test/', '😀'.repeat(100)), source('https://b.test/', '标题很长'.repeat(100)),
       source('https://long.test/' + 'x'.repeat(600)),
     ], text))
-    const reply = await askGemini('问题', { ...config, enableGoogleSearch: true, maxReplyChars: 500 }, fetcher)
+    const payload = await (await fetcher('https://mock.test')).json() as { candidates: [{ groundingMetadata: unknown }] }
+    const reply = appendSources(limitReply(text, 500), payload.candidates[0].groundingMetadata, 500, config.apiKey)
     expect(reply.startsWith(limitReply(text, 500))).toBe(true)
     expect(Array.from(reply).length).toBeLessThanOrEqual(500)
     expect(new TextEncoder().encode(reply).length).toBeLessThanOrEqual(1500)

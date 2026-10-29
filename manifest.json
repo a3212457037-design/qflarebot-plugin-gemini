@@ -19,6 +19,15 @@
       ]
     },
     {
+      "name": "search",
+      "description": "联网搜索并由 AI 整理回答",
+      "usage": "/search <关键词>",
+      "scenes": [
+        "c2c",
+        "group"
+      ]
+    },
+    {
       "name": "reset",
       "description": "清除当前对话历史",
       "usage": "/reset",
@@ -101,11 +110,19 @@
         },
         "description": "普通聊天不会处理这些前缀开头的消息。默认无需更改；若机器人使用自定义命令前缀，请同步填写。SDK 不提供全局前缀读取接口。/ 始终跳过。"
       },
-      "enableGoogleSearch": {
+      "enableTavilySearch": {
         "type": "boolean",
-        "title": "启用 Google Search 联网搜索",
+        "title": "启用 Tavily 联网搜索",
         "default": false,
-        "description": "默认关闭。启用后由 Gemini 决定是否搜索，最多附加 2 个来源。此模型的免费 API 层不提供搜索，可能需要项目权限并产生费用；插件不会修改计费设置。"
+        "description": "默认关闭。开启后时效性问题自动搜索，也可用 /search；仅 basic、最多 3 条结果。Google 原生搜索已停用。"
+      },
+      "tavilyApiKey": {
+        "type": "string",
+        "title": "Tavily API Key",
+        "writeOnly": true,
+        "maxLength": 4096,
+        "default": "",
+        "description": "仅在面板填写，保存后不回显。不会开通付费服务；请在 Tavily 保持 Pay as you go 关闭。"
       }
     },
     "required": [
@@ -125,6 +142,8 @@
     "ignoredCommandPrefixes": [
       "/"
     ],
-    "enableGoogleSearch": false
+    "enableGoogleSearch": false,
+    "enableTavilySearch": false,
+    "tavilyApiKey": ""
   }
 }

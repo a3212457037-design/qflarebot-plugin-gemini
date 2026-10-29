@@ -184,16 +184,38 @@ describe('官方配置校验和 writeOnly 机制', () => {
   })
 
   it('旧配置自动补齐前缀默认值，保留原 Key，不要求迁移', () => {
-    const { ignoredCommandPrefixes: _prefixes, enableGoogleSearch: _search, ...oldConfig } = config
+    const { ignoredCommandPrefixes: _prefixes, enableGoogleSearch: _search,
+      enableTavilySearch: _tavily, tavilyApiKey: _key, ...oldConfig } = config
     expect(validateConfig(configSchema, oldConfig)).toEqual([])
     expect(withConfigDefaults(oldConfig, defaultConfig, configSchema)).toEqual(config)
   })
 
   it('管理端只收到占位符，保存未改字段可以保留原 Key', () => {
-    const masked = maskSecrets(configSchema, config)
-    expect(JSON.stringify(masked)).not.toContain(config.apiKey)
-    expect(masked).toMatchObject({ apiKey: '__qflare_secret__:apiKey' })
-    expect(restoreSecrets(configSchema, masked, config)).toEqual(config)
+    const both = { ...config, tavilyApiKey: 'local-tavily-test-credential' }
+    const masked = maskSecrets(configSchema, both)
+    for (const key of [both.apiKey, both.tavilyApiKey]) expect(JSON.stringify(masked)).not.toContain(key)
+    expect(masked).toMatchObject({ apiKey: '__qflare_secret__:apiKey', tavilyApiKey: '__qflare_secret__:tavilyApiKey' })
+    expect(restoreSecrets(configSchema, masked, both)).toEqual(both)
     expect(restoreSecrets(configSchema, { ...config, apiKey: '' }, config)).toMatchObject({ apiKey: '' })
+  })
+})
+
+describe('Tavily 命令与真实 dispatcher', () => {
+  it.each(['C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'])('%s 的 /search 只搜索/回复一次', async (type) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).includes('tavily')
+      ? Response.json({ results: [{ title: '来源', url: 'https://source.test/', content: '资料' }] })
+      : Response.json({ candidates: [{ content: { parts: [{ text: '整理回答' }] } }] }))
+    const bot = harness(fetcher, ['/'], { ...config, enableTavilySearch: true, tavilyApiKey: 'local-tavily-test-credential' })
+    const { replies, report } = await bot.deliver(type, type.startsWith('GROUP') ? '<@123456> /search 关键词' : '/search 关键词')
+    expect(replies).toEqual(['整理回答\n来源：\n来源 https://source.test/'])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(report.matched).toEqual([{ plugin: 'gemini', kind: 'command', name: 'search' }])
+    expect(report.errors).toEqual([])
+  })
+  it('未 @ 群的 /search 不回复、不请求', async () => {
+    const { replies, fetcher } = await harness(undefined, ['/'], { ...config, enableTavilySearch: true, tavilyApiKey: 'local-test-key' })
+      .deliver('GROUP_MESSAGE_CREATE', '/search 新闻')
+    expect(replies).toEqual([])
+    expect(fetcher).not.toHaveBeenCalled()
   })
 })

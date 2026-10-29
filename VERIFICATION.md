@@ -1,5 +1,19 @@
 # 本地验证记录
 
+## Tavily 本地增量验证（0.1.0，2026-10-29）
+
+基线：main `ce8153e9fc6440472fe3a6df6725e396dfc8f243`；开始时 Git 干净，outputs 与基线的文本内容一致（部分文件行尾不同）。本记录对应本地验证阶段，当时尚未提交、推送或部署；实际发布与上线状态需另行核实。
+
+- `npm run typecheck`：通过。
+- `npm test`：193/193 通过（index 54、history 17、grounding 21、Tavily 59、真实框架联测 42）。
+- `npm run sync`：官方 CLI 构建并同步 manifest 成功，版本 0.1.0、ai/search/reset 三个命令、net/kv 权限，无新运行依赖。
+- `npm run check:manifest`：通过。
+- `npm run test:workers`：11 个实际本地 workerd 场景通过，包括私聊/群 @、未 @ 忽略、上下文 TTL、Tavily 搜索成功/额度失败、Google 原生工具停用和 reset。
+- 覆盖：basic/3条/禁止自动升级，规则/强制搜索，关闭/无 Key/失败/超时/无效及超大响应/429/432/433，30秒间隔与日/月尝试预算、KV 故障时拒绝，最多两条真实来源及字符/字节预算，提示隔离与双 Key 脱敏、writeOnly 往返，原有聊天/限流/历史隔离/重置回归。
+- Gemini auth 增加固定 HTTP 状态和原因分类；不记录 Google 原始报错或项目标识。现有线上日志仅有 code=auth，仍不足以确定真实 Key/项目权限根因。
+
+使用现有测试依赖目录完成验证，再将相同源码和构建产物同步至 outputs；未使用真实 Gemini/Tavily Key，未请求真实外部 API 或 QQ。真实账户授权、Tavily 搜索质量、QQ 投递与多 isolate 下计数表现仍需管理员日后更新插件后实测。KV 辅助用量保护不等于账户费用封顶。下文保留初版历史记录，不代表此次测试结果。
+
 日期：2026-10-29；Windows / Node.js v24.20.0。框架及官方 SDK/CLI：QFlareBot v0.6.1，Fork 提交 `d143732abd6312e21f55edc2d3e6220563f06be8`。
 
 | 检查 | 实际结果 |

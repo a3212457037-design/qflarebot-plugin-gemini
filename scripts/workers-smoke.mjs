@@ -17,17 +17,23 @@ const { outputFiles } = await build({
           const url = new URL(request.url);
           let calls = 0;
           let sent;
+          let searchSent;
           const plugin = createGeminiPlugin(async (_url, init) => {
             calls++;
+            if (_url === 'https://api.tavily.com/search') {
+              searchSent = JSON.parse(init.body);
+              if (url.searchParams.get('fail') === '1') return Response.json({}, {status: 432});
+              return Response.json({results: [{url: 'https://source.test/', title: '来源', content: '搜索资料'}]});
+            }
             sent = JSON.parse(init.body);
             return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Workers 回答成功' }] }, groundingMetadata: { groundingChunks: [{web: {uri: 'https://source.test/', title: '来源'}}] } }] });
           });
           const scene = url.pathname.slice(1);
           const atMe = url.searchParams.get('at') === '1';
-          const session = { scene, event: scene === 'c2c' ? 'qq.c2c.message' : atMe ? 'qq.group.at_message' : 'qq.group.message', targetId: scene === 'group' ? 'test-group' : 'test', attachments: [], content: '你好', atMe, canReply: true, botId: 'test', userId: 'test' };
+          const session = { scene, event: scene === 'c2c' ? 'qq.c2c.message' : atMe ? 'qq.group.at_message' : 'qq.group.message', targetId: scene === 'group' ? 'test-group' : 'test', attachments: [], content: url.searchParams.get('tavily') === '1' ? '最新新闻' : '你好', atMe, canReply: true, botId: 'test', userId: 'test' };
           const data = new Map();
           const writes = [];
-          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000, enableGoogleSearch: url.searchParams.get('search') === '1' }, logger: { warn() {} }, kv: {
+          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000, enableGoogleSearch: true, enableTavilySearch: url.searchParams.get('tavily') === '1', tavilyApiKey: 'local-tavily-test-credential' }, logger: { warn() {} }, kv: {
             async get(key) { return data.get(key) ?? null; },
             async put(key, value, options) { data.set(key, JSON.stringify(value)); writes.push({ value, options }); },
             async delete(key) { data.delete(key); }
@@ -39,7 +45,7 @@ const { outputFiles } = await build({
           const result = url.searchParams.get('mode') === 'text'
             ? await plugin.regex[0].handler({ session, ctx, match: ['你'] })
             : await plugin.commands.ai.handler({ session, ctx, argText: '你好' });
-          return Response.json({ reply: result ?? null, calls, writes, tools: sent?.tools ?? null });
+          return Response.json({ reply: result ?? null, calls, writes, tools: sent?.tools ?? null, searchSent: searchSent ?? null });
         }
       };
     `,
@@ -62,14 +68,139 @@ try {
       assert.equal(result.writes[0].value.messages.length, 2)
     }
     const skipped = await (await mf.dispatchFetch(`https://smoke.test/group?at=0&mode=${mode}`)).json()
-    assert.deepEqual(skipped, { reply: null, calls: 0, writes: [], tools: null })
+    assert.deepEqual(skipped, { reply: null, calls: 0, writes: [], tools: null, searchSent: null })
   }
   const search = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&search=1')).json()
-  assert.deepEqual(search.tools, [{ google_search: {} }])
-  assert.equal(search.reply, 'Workers 回答成功\n来源：\n来源 https://source.test/')
-  const reset = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=reset')).json()
-  assert.deepEqual(reset, { reply: '当前会话的对话历史已清除。', calls: 0, entries: 0 })
-  console.log('本地 workerd：8 项通过，覆盖普通文本、命令、KV/TTL、Search 与 reset（未连接 Google / QQ）')
-} finally {
-  await mf.dispose()
+  assert.equal(search.tools, null)
+  assert.equal(search.reply, 'Workers 回答成功')
+  for (const scene of ['c2c', 'group']) {
+    const result = await (await mf.dispatchFetch(`https://smoke.test/${scene}?at=1&mode=text&tavily=1`)).json();
+    assert.equal(result.reply, 'Workers 回答成功\n来源：\n来源 https://source.test/');
+    assert.equal(result.calls, 2);
+    assert.equal(result.tools, null);
+    assert.equal(result.searchSent.search_depth, 'basic');
+    assert.equal(result.searchSent.max_results, 3);
+    assert.equal(result.writes.length, 2);
+    assert.equal(result.writes[1].value.messages.length, 2);
+  }
+  const failed = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=text&tavily=1&fail=1')).json();
+  assert.equal(failed.reply, '搜索额度不足，请联系机器人管理员。');
+  assert.equal(failed.calls, 1);
+  assert.equal(failed.writes.length, 1);
+  const reset = await (await mf.dispat…8302 tokens truncated…u4eba管理员。'
+
+    const now = Date.now()
+    const user = JSON.stringify([session.botId, session.userId])
+    if (busy) return 'AI 正在回答，请稍后再问。'
+    if (now < nextRequestAt || now < (users.get(user) ?? 0)) return '提问太频繁，请稍后再试。'
+    for (const [id, until] of users) if (until <= now) users.delete(id)
+    if (users.size >= 1024) return 'AI 服务暂时繁忙，请稍后再试。'
+    users.set(user, now + 10000)
+    nextRequestAt = now + 6000
+    busy = true
+    const key = conversationKey(session)
+    activeHistoryKey = key
+    resetDuringRequest = false
+    try {
+      let results
+      if (search) {
+        if (now < nextSearchAt) throw new TavilyError('rate')
+        nextSearchAt = now + SEARCH_INTERVAL_MS
+        await reserveSearch(ctx.kv, now)
+        results = await searchTavily(question, config, fetcher)
+      }
+      let history: ChatMessage[] = []
+      if (key) {
+        try { history = await loadHistory(ctx.kv, key) }
+        catch { ctx.logger.warn('Gemini 历史读取失败', { code: 'history_read' }) }
+      }
+      if (resetDuringRequest) history = []
+      const reply = await askGemini(question, config, fetcher, history, results)
+      if (key && !resetDuringRequest) {
+        try {
+          await saveHistory(ctx.kv, key, history, question, reply)
+          // /reset 若发生在 KV 写入期间，写入完成后再次删除，避免恢复已重置的历史。
+          if (resetDuringRequest) await ctx.kv.delete(key)
+        } catch { ctx.logger.warn('Gemini 历史保存失败', { code: 'history_write' }) }
+      }
+      return reply
+    } catch (error) {
+      if (error instanceof TavilyError) {
+        ctx.logger.warn('Tavily 搜索未完成', { code: error.code })
+        return error.message
+      }
+      const code = error instanceof GeminiError ? error.code : 'unavailable'
+      ctx.logger.warn('Gemini 请求未完成', {
+        code,
+        ...(error instanceof GeminiError && error.diagnostic ? { error: error.diagnostic } : {}),
+        ...(error instanceof GeminiError && error.api ? { api: error.api } : {}),
+      })
+      return tips[code]
+    } finally {
+      activeHistoryKey = null
+      busy = false
+    }
+  }
+
+  return definePlugin<Config>({
+    name: 'gemini',
+    apiVersion: 4,
+    displayName: 'Gemini 文本问答',
+    description: '通过 Gemini 进行中文文本问答，支持会话上下文与可选联网搜索',
+    permissions: ['net', 'kv'],
+    configSchema,
+    defaultConfig,
+    commands: {
+      ai: {
+        description: '向 AI 提问',
+        usage: '/ai <问题>',
+        scenes: ['c2c', 'group'],
+        handler: chat,
+      },
+      search: {
+        description: '联网搜索并由 AI 整理回答',
+        usage: '/search <关键词>',
+        scenes: ['c2c', 'group'],
+        handler: (input) => chat(input, true),
+      },
+      reset: {
+        description: '清除当前对话历史',
+        usage: '/reset',
+        scenes: ['c2c', 'group'],
+        async handler({ session, ctx }) {
+          if (session.scene !== 'c2c' && session.scene !== 'group') return
+          if (session.scene === 'group' && !session.atMe) return
+          if (!session.canReply) return
+          const key = conversationKey(session)
+          if (!key) return '无法识别当前会话，请稍后再试。'
+          if (activeHistoryKey === key) resetDuringRequest = true
+          try {
+            await ctx.kv.delete(key)
+            return '当前会话的对话历史已清除。'
+          } catch {
+            ctx.logger.warn('Gemini 历史重置失败', { code: 'history_reset' })
+            return '暂时无法清除对话历史，请稍后再试。'
+          }
+        },
+      },
+    },
+    regex: [{
+      pattern: '\\S',
+      scenes: ['c2c', 'group'],
+      priority: -100,
+      block: false,
+      handler({ session, ctx }) {
+        if (session.scene !== 'c2c' && session.scene !== 'group') return
+        if (session.scene === 'group' && !session.atMe) return
+        if (!isMessageEvent(session.event) || session.attachments.length) return
+        const text = session.content.trim()
+        if (!text || text.startsWith('/')) return
+        const prefixes = ctx.config?.ignoredCommandPrefixes ?? defaultConfig.ignoredCommandPrefixes
+        if (Array.isArray(prefixes) && prefixes.some((prefix) => typeof prefix === 'string' && prefix.length && text.startsWith(prefix))) return
+        return chat({ session, ctx, argText: text })
+      },
+    }],
+  })
 }
+
+export default createGeminiPlugin()

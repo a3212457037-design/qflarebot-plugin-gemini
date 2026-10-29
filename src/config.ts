@@ -8,6 +8,8 @@ export interface Config {
   timeoutMs: number
   ignoredCommandPrefixes: string[]
   enableGoogleSearch: boolean
+  enableTavilySearch: boolean
+  tavilyApiKey: string
 }
 
 export const MODEL = 'gemini-3.5-flash-lite'
@@ -20,6 +22,8 @@ export const defaultConfig: Config = {
   timeoutMs: 15000,
   ignoredCommandPrefixes: ['/'],
   enableGoogleSearch: false,
+  enableTavilySearch: false,
+  tavilyApiKey: '',
 }
 
 const ranges = {
@@ -51,9 +55,13 @@ export const configSchema: JsonSchema = {
       items: { type: 'string', minLength: 1, maxLength: 32 },
       description: '普通聊天不会处理这些前缀开头的消息。默认无需更改；若机器人使用自定义命令前缀，请同步填写。SDK 不提供全局前缀读取接口。/ 始终跳过。',
     },
-    enableGoogleSearch: {
-      type: 'boolean', title: '启用 Google Search 联网搜索', default: false,
-      description: '默认关闭。启用后由 Gemini 决定是否搜索，最多附加 2 个来源。此模型的免费 API 层不提供搜索，可能需要项目权限并产生费用；插件不会修改计费设置。',
+    enableTavilySearch: {
+      type: 'boolean', title: '启用 Tavily 联网搜索', default: false,
+      description: '默认关闭。开启后时效性问题自动搜索，也可用 /search；仅 basic、最多 3 条结果。Google 原生搜索已停用。',
+    },
+    tavilyApiKey: {
+      type: 'string', title: 'Tavily API Key', writeOnly: true, maxLength: 4096, default: '',
+      description: '仅在面板填写，保存后不回显。不会开通付费服务；请在 Tavily 保持 Pay as you go 关闭。',
     },
   },
   required: ['apiKey', ...Object.keys(ranges)],
@@ -63,10 +71,14 @@ export const configSchema: JsonSchema = {
 export function readConfig(value: Config): Config | null {
   if (!value || typeof value !== 'object') return null
   const config = { ...defaultConfig, ...value }
-  if (typeof config.enableGoogleSearch !== 'boolean') return null
-  if (typeof config.apiKey !== 'string' || config.apiKey.length > 4096) return null
-  config.apiKey = config.apiKey.trim()
-  if (/[\u0000-\u0020\u007f-\u009f]/u.test(config.apiKey)) return null
+  // 保留旧字段的兼容性，但旧配置即使为 true 也不再发送 Google tools。
+  config.enableGoogleSearch = false
+  if (typeof config.enableTavilySearch !== 'boolean') return null
+  for (const key of ['apiKey', 'tavilyApiKey'] as const) {
+    if (typeof config[key] !== 'string' || config[key].length > 4096) return null
+    config[key] = config[key].trim()
+    if (/[\u0000-\u0020\u007f-\u009f]/u.test(config[key])) return null
+  }
   if (!Array.isArray(config.ignoredCommandPrefixes) || config.ignoredCommandPrefixes.length > 16
     || config.ignoredCommandPrefixes.some((prefix) => typeof prefix !== 'string' || !prefix.length || prefix.length > 32)) return null
   for (const key of Object.keys(ranges) as Array<keyof typeof ranges>) {
