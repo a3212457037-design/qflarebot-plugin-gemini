@@ -117,7 +117,7 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
   const request = async (): Promise<string> => {
     const response = await fetcher(ENDPOINT, {
       method: 'POST',
-      redirect: 'error', // Key 只发往固定的 Google HTTPS 地址。
+      redirect: 'manual', // Workers 支持 manual；Key 只发往固定的 Google HTTPS 地址。
       headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },
       signal: controller.signal,
       body: JSON.stringify({
@@ -126,6 +126,11 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
         generationConfig: { maxOutputTokens: config.maxOutputTokens },
       }),
     })
+    if (response.status >= 300 && response.status < 400) {
+      // 不读取 Location 或响应正文，也不重发请求，避免把 Key 带到重定向目标。
+      void response.body?.cancel().catch(() => {})
+      throw new GeminiError('request')
+    }
     let json: unknown
     try {
       json = await readJson(response)

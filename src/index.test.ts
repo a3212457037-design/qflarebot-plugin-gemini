@@ -26,7 +26,7 @@ describe('QQ 文本问答', () => {
     expect(url).toBe(ENDPOINT)
     expect(String(url)).toContain(MODEL)
     expect(String(url)).not.toContain(config.apiKey)
-    expect(init).toMatchObject({ method: 'POST', redirect: 'error', headers: { 'x-goog-api-key': config.apiKey } })
+    expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { 'x-goog-api-key': config.apiKey } })
     const body = JSON.parse(init!.body as string)
     expect(body.contents).toEqual([{ role: 'user', parts: [{ text: '你好' }] }])
     expect(body.generationConfig).toEqual({ maxOutputTokens: 512 })
@@ -201,6 +201,32 @@ describe('安全的原始异常诊断', () => {
 })
 
 describe('API 错误提示', () => {
+  it.each([300, 301, 302, 303, 304, 305, 307, 308, 399])('HTTP %s 不跟随重定向、不解析正文、不泄露 Key', async (status) => {
+    const target = `https://redirect.invalid/collect?key=${config.apiKey}`
+    const response = new Response(status === 304 ? null : `private-redirect-body ${config.apiKey}`, {
+      status, headers: { location: target },
+    })
+    const read = response.body ? vi.spyOn(response.body, 'getReader') : undefined
+    const cancel = response.body ? vi.spyOn(response.body, 'cancel') : undefined
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response)
+    const plugin = createGeminiPlugin(fetcher)
+    const ctx = createMockContext(plugin, { config })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const result = await normalizePlugin(plugin).commands[0]!.handler({
+      session: createMockSession(), ctx, command: 'ai', args: ['你好'], argText: '你好',
+    })
+    expect(result).toBe(tips.request)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledWith(ENDPOINT, expect.objectContaining({
+      redirect: 'manual', headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },
+    }))
+    if (read) expect(read).not.toHaveBeenCalled()
+    if (cancel) expect(cancel).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('Gemini 请求未完成', { code: 'request' })
+    const logged = JSON.stringify(warn.mock.calls)
+    for (const secret of [config.apiKey, target, 'private-redirect-body']) expect(logged).not.toContain(secret)
+  })
+
   it.each([
     [400, { message: 'bad input' }, tips.request],
     [400, { details: [{ reason: 'API_KEY_INVALID' }] }, tips.auth],
