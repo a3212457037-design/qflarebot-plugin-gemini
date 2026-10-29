@@ -16,7 +16,7 @@
 - SDK内部QQ重试沿用同一个msg_id/msg_seq，插件不会用新序号盲目重发不确定结果。`uncertain`/`submit_unknown` 需要管理员排查或用户 `/reset`；这是避免重复投递的明确取舍，不声称跨HTTP与D1事务绝对恰好一次。
 - `timeoutMs` 在后台模式仅限制提交/查询单次HTTP（每次最多8秒），不限制Google后台推理的总时长。普通generateContent仍用27秒预算。Tavily、普通聊天、原命令和密钥脱敏继续共用现有实现。
 
-管理页只返回模型权限分类、任务状态、时间与Google报告的耗时 `model_ms`，不显示用户ID/问题/Interaction ID/密钥。验收需同时记录Google实际耗时超过30秒与QQ真实自动收到答案；本地替身/排队60秒本身不能证明Google推理超过30秒。
+管理页只返回模型权限分类、任务状态、时间与Google报告的耗时 `model_ms`，不显示用户ID/问题/Interaction ID/密钥。验收分别记录模型耗时与端到端自动投递耗时。真实QQ已确认普通消息在约90秒后自动收到对应答案，无需result/more，后台记录约88秒端到端；此时间包含Cron等待，不能据此宣称Google纯推理超过30秒。详见VERIFICATION.md。
 
 官方接口依据：[后台执行](https://ai.google.dev/gemini-api/docs/background-execution)、[Interactions OpenAPI](https://ai.google.dev/api/interactions-api)、[Webhooks](https://ai.google.dev/gemini-api/docs/webhooks)。当前项目的权限、额度及延迟必须实际核验，插件不会更换模型、开启计费或购买服务。
 
