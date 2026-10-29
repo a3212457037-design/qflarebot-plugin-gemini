@@ -7,6 +7,8 @@ import { needsSearch, reserveSearch, searchTavily, TavilyError, SEARCH_INTERVAL_
 import { hideKey } from './grounding.js'
 import { deliverAnswer, deliverPending, loadPending, pendingKeys, GENERATION_BUDGET_MS, TURN_BUDGET_MS } from './delivery.js'
 import { resolveModel, parseModelChoice, saveModel, modelMenu, ModelStateError } from './models.js'
+import { abandonBackground, BackgroundError, cancelBackground, hasBackground, processBackground, reserveBackground, submitBackground, type Task } from './background.js'
+import { backgroundRoutes } from './background-panel.js'
 
 export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(...args)) {
   // 只保存冷却时间，不保存问答。Worker isolate 重建或扩容后会重置，非全局强限流。
@@ -45,10 +47,13 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     const key = conversationKey(session)
     activeHistoryKey = key
     resetDuringRequest = false
+    let task: Task | undefined
     try {
+      if (await hasBackground(ctx, session)) return '本会话已有后台任务，请等待自动回复；可用 /reset 取消。'
       const pending = await loadPending(ctx, session).catch(() => null)
       if (pending) return '上一条长回答尚未发完，请用 /more 继续领取；或用 /reset 清除后再提新问题。'
       config.model = (await resolveModel(ctx, session, config.model)).model
+      if (config.executionMode === 'background') task = await reserveBackground(ctx, session, config)
       let results
       if (search) {
         if (now < nextSearchAt) throw new TavilyError('rate')
@@ -62,6 +67,10 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
         catch { ctx.logger.warn('Gemini 历史读取失败', { code: 'history_read' }) }
       }
       if (resetDuringRequest) history = []
+      if (task) {
+        await submitBackground(ctx, task, config, fetcher, question, history, results)
+        return // 普通消息无需命令取结果；不发送占用 msg_seq 的“已收到”消息。
+      }
       const remaining = now + GENERATION_BUDGET_MS - Date.now()
       if (remaining <= 0) throw new GeminiError('timeout')
       const reply = await askGemini(question, { ...config, timeoutMs: Math.min(config.timeoutMs, remaining) }, fetcher, history, results)
@@ -74,6 +83,10 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
       }
       return await deliverAnswer(session, ctx, reply, now + TURN_BUDGET_MS, () => resetDuringRequest)
     } catch (error) {
+      if (error instanceof BackgroundError) {
+        ctx.logger.warn('Gemini 后台任务未完成', { code: error.code })
+        return error.message
+      }
       if (error instanceof ModelStateError) {
         ctx.logger.warn('Gemini 会话模型读取失败', { code: error.code })
         return error.message
@@ -88,8 +101,10 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
         ...(error instanceof GeminiError && error.diagnostic ? { error: error.diagnostic } : {}),
         ...(error instanceof GeminiError && error.api ? { api: error.api } : {}),
       })
+      if (task && ['timeout', 'network', 'response', 'unavailable'].includes(code)) return '后台提交结果暂时无法确认，为避免重复请求已停止重试；请稍后发送 /reset 后再提问。'
       return tips[code]
     } finally {
+      if (task) await abandonBackground(ctx, task.id).catch(() => {})
       activeHistoryKey = null
       busy = false
     }
@@ -100,9 +115,17 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     apiVersion: 4,
     displayName: 'Gemini 文本问答',
     description: '通过 Gemini 进行中文文本问答，支持会话上下文与可选联网搜索',
-    permissions: ['net', 'kv'],
+    permissions: ['net', 'kv', 'db'],
     configSchema,
     defaultConfig,
+    ui: { path: '/ui/', title: 'Gemini 后台任务', icon: 'Clock' },
+    routes: backgroundRoutes(fetcher),
+    cron: { background: { cron: '* * * * *', async handler({ ctx }) {
+      const config = readConfig(ctx.config)
+      if (!config?.apiKey) return
+      try { await processBackground(ctx, config, fetcher) }
+      catch { ctx.logger.warn('Gemini 后台轮询不可用', { code: 'background_poll' }) }
+    } } },
     commands: {
       ai: {
         description: '向 AI 提问',
@@ -189,6 +212,7 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
           if (!key) return '无法识别当前会话，请稍后再试。'
           if (activeHistoryKey === key) resetDuringRequest = true
           try {
+            await cancelBackground(ctx, session)
             await ctx.kv.delete(key)
             const keys = pendingKeys(session)
             if (keys) await Promise.all(keys.map((item) => ctx.kv.delete(item)))

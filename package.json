@@ -12,7 +12,7 @@
     "check:manifest": "node scripts/manifest.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:workers": "node scripts/workers-smoke.mjs",
+    "test:workers": "node scripts/workers-smoke.mjs && node scripts/background-smoke.mjs",
     "test:install": "node scripts/install-smoke.mjs"
   },
   "devDependencies": {

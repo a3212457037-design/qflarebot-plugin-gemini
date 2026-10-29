@@ -4,6 +4,7 @@ import { MODEL_IDS, isModelId, type ModelId } from './models.js'
 export interface Config {
   apiKey: string
   model: ModelId
+  executionMode?: 'generateContent' | 'background'
   maxInputChars: number
   /** 兼容旧快照，已停用，不再裁剪回复。 */
   maxReplyChars?: number
@@ -20,6 +21,7 @@ export const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models
 export const defaultConfig: Config = {
   apiKey: '',
   model: MODEL,
+  executionMode: 'generateContent',
   maxInputChars: 500,
   maxOutputTokens: 65536,
   timeoutMs: 27000,
@@ -43,6 +45,10 @@ const integer = (key: keyof typeof ranges, title: string) => ({
 export const configSchema: JsonSchema = {
   type: 'object',
   properties: {
+    executionMode: {
+      type: 'string', title: '推理执行模式', enum: ['generateContent', 'background'], default: 'generateContent',
+      description: '普通模式保留原接口；background 在 Google 后台推理，由每分钟 Cron/可选 Webhook 自动回复。先在插件的后台任务页面核验当前 Key 的三个模型权限。需要现有 D1 和每分钟 Cron，群聊回复须在 5 分钟内完成。',
+    },
     model: {
       type: 'string', title: '默认聊天模型', enum: [...MODEL_IDS], default: MODEL,
       description: '未单独选择模型的会话跟随此值。聊天用 /model 切换当前会话，/model default 恢复跟随。共用现有 Gemini Key；权限、速度和额度取决于 Google 项目，不会自动换模型或开启计费。',
@@ -83,6 +89,7 @@ export function readConfig(value: Config): Config | null {
   if (!value || typeof value !== 'object') return null
   const config = { ...defaultConfig, ...value }
   if (!isModelId(config.model)) return null
+  if (!['generateContent', 'background'].includes(config.executionMode ?? '')) return null
   delete config.maxReplyChars
   // 保留旧字段的兼容性，但旧配置即使为 true 也不再发送 Google tools。
   config.enableGoogleSearch = false
