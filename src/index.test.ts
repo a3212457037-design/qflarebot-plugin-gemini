@@ -114,16 +114,89 @@ describe('QQ 文本问答', () => {
     expect((await runCommand(plugin, 'ai', '再试', { ctx: { config } })).replies).toEqual(['你好，我是上分难。'])
   })
 
-  it('网络异常只记录固定错误码，不泄露异常文本或凭据', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new Error(`upstream ${config.apiKey}`))
+  it('网络异常记录脱敏诊断，不记录异常附带的请求、响应、stack 或 cause', async () => {
+    const original = Object.assign(new TypeError(`fetch failed ${config.apiKey}`), {
+      headers: { 'x-goog-api-key': config.apiKey, other: 'private-header' },
+      body: 'private-request-body',
+      response: { body: 'private-response-body' },
+      cause: new Error(`private-cause ${config.apiKey}`),
+      stack: `private-stack ${config.apiKey}`,
+    })
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(original)
     const plugin = createGeminiPlugin(fetcher)
     const command = normalizePlugin(plugin).commands[0]!
     const ctx = createMockContext(plugin, { config })
     const warn = vi.spyOn(ctx.logger, 'warn')
     const result = await command.handler({ session: createMockSession(), ctx, command: 'ai', args: ['你好'], argText: '你好' })
     expect(result).toBe(tips.network)
-    expect(warn).toHaveBeenCalledWith('Gemini 请求未完成', { code: 'network' })
-    expect(JSON.stringify(warn.mock.calls)).not.toContain(config.apiKey)
+    expect(warn).toHaveBeenCalledWith('Gemini 请求未完成', {
+      code: 'network', error: { name: 'TypeError', message: 'fetch failed [REDACTED]' },
+    })
+    const logs = JSON.stringify(warn.mock.calls)
+    for (const secret of [config.apiKey, 'private-header', 'private-request-body', 'private-response-body', 'private-cause', 'private-stack']) {
+      expect(logs).not.toContain(secret)
+    }
+  })
+})
+
+describe('安全的原始异常诊断', () => {
+  async function diagnose(error: unknown, apiKey = config.apiKey) {
+    const plugin = createGeminiPlugin(vi.fn<typeof fetch>().mockRejectedValue(error))
+    const ctx = createMockContext(plugin, { config: { ...config, apiKey } })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const result = await normalizePlugin(plugin).commands[0]!.handler({
+      session: createMockSession(), ctx, command: 'ai', args: ['你好'], argText: '你好',
+    })
+    expect(result).toBe(tips.network)
+    return warn.mock.calls[0]![1] as { code: string; error: { name: string; message: string } }
+  }
+
+  it.each([
+    ['TypeError', 'DNS resolution failed'],
+    ['Error', 'TLS handshake failed'],
+    ['TypeError', 'fetch failed: connection reset'],
+  ])('保留可用于诊断的名称 %s 和消息 %s', async (name, message) => {
+    const error = new Error(message)
+    error.name = name
+    expect(await diagnose(error)).toEqual({ code: 'network', error: { name, message } })
+  })
+
+  it('名称和消息都脱敏、清理控制字符，并分别限制到 64 和 200 字符', async () => {
+    const error = new Error(`TLS\nfailed\t${config.apiKey} ${'😀'.repeat(250)}`)
+    error.name = `Error\u0000${config.apiKey} ${'N'.repeat(100)}`
+    const diagnostic = (await diagnose(error)).error
+    expect(Array.from(diagnostic.name)).toHaveLength(64)
+    expect(Array.from(diagnostic.message)).toHaveLength(200)
+    expect(diagnostic.name).toContain('[REDACTED]')
+    expect(diagnostic.message).toContain('TLS failed [REDACTED]')
+    expect(JSON.stringify(diagnostic)).not.toContain(config.apiKey)
+    expect(diagnostic.name + diagnostic.message).not.toMatch(/[\u0000-\u001f\u007f-\u009f\ufffd]/u)
+  })
+
+  it('在截断边界前先替换完整 Key，不泄露 Key 的前半截', async () => {
+    const diagnostic = (await diagnose(new Error('x'.repeat(190) + config.apiKey))).error
+    expect(diagnostic.message).toBe('x'.repeat(190) + '[REDACTED]')
+    expect(diagnostic.message).not.toContain(config.apiKey.slice(0, 10))
+  })
+
+  it('同时移除明文和 URL 编码后的 Key', async () => {
+    const apiKey = 'local/test+credential?'
+    const encoded = encodeURIComponent(apiKey)
+    const error = new Error(`fetch failed ${apiKey} ${encoded}`)
+    error.name = `Error:${apiKey}:${encoded}`
+    const diagnostic = (await diagnose(error, apiKey)).error
+    expect(diagnostic).toEqual({ name: 'Error:[REDACTED]:[REDACTED]', message: 'fetch failed [REDACTED] [REDACTED]' })
+    expect(JSON.stringify(diagnostic)).not.toContain(apiKey)
+    expect(JSON.stringify(diagnostic)).not.toContain(encoded)
+  })
+
+  it.each([
+    `non-error ${config.apiKey}`,
+    { name: 'UnsafeObject', message: config.apiKey, headers: { key: config.apiKey } },
+  ])('不将非 Error 异常对象或字符串序列化进日志：%#', async (error) => {
+    const data = await diagnose(error)
+    expect(data.error).toEqual({ name: 'UnknownError', message: 'Non-Error exception' })
+    expect(JSON.stringify(data)).not.toContain(config.apiKey)
   })
 })
 

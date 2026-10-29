@@ -18,11 +18,26 @@ export const tips: Record<ErrorCode, string> = {
 }
 
 export class GeminiError extends Error {
-  constructor(readonly code: ErrorCode) {
-    // 不把上游原始异常、响应或 Key 带入 Error，框架也不会意外记录它们。
+  constructor(readonly code: ErrorCode, readonly diagnostic?: { name: string; message: string }) {
+    // message 保持用户提示；只允许携带脱敏后的诊断，不保留原始异常或 cause。
     super(tips[code])
     this.name = 'GeminiError'
   }
+}
+
+function safeDiagnostic(error: unknown, apiKey: string): { name: string; message: string } {
+  // 不序列化异常对象，避免附带的 headers / body / response / stack / cause 进入日志。
+  if (!(error instanceof Error)) return { name: 'UnknownError', message: 'Non-Error exception' }
+  const clean = (value: string, limit: number): string => {
+    let text = value
+    // 必须先脱敏再截断，防止截断后的半截 Key 泄露；也覆盖 URL 编码形式。
+    for (const secret of new Set([apiKey, encodeURIComponent(apiKey)])) {
+      if (secret) text = text.split(secret).join('[REDACTED]')
+    }
+    text = text.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim()
+    return Array.from(text).slice(0, limit).join('')
+  }
+  return { name: clean(error.name, 64), message: clean(error.message, 200) }
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -141,7 +156,7 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
   } catch (error) {
     if (controller.signal.aborted) throw new GeminiError('timeout')
     if (error instanceof GeminiError) throw error
-    throw new GeminiError('network')
+    throw new GeminiError('network', safeDiagnostic(error, config.apiKey))
   } finally {
     if (timer !== undefined) clearTimeout(timer)
   }

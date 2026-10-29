@@ -47,7 +47,10 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
             return await askGemini(question, config, fetcher)
           } catch (error) {
             const code = error instanceof GeminiError ? error.code : 'unavailable'
-            ctx.logger.warn('Gemini 请求未完成', { code })
+            ctx.logger.warn('Gemini 请求未完成', {
+              code,
+              ...(error instanceof GeminiError && error.diagnostic ? { error: error.diagnostic } : {}),
+            })
             return tips[code]
           } finally {
             busy = false

@@ -52,7 +52,7 @@ API 超时、429、明确的每日额度不足/402、Key 或权限错误、模�
 
 使用 QFlareBot 原生插件设置：Key 存在其 KV 配置快照中，`writeOnly` 令管理状态和快照接口只返回占位符。这是框架的隐藏回显机制，**不是插件额外提供的加密存储或独立 Worker Secret**；拥有部署/KV 权限的管理员、同一运行时中的可信插件仍有相应访问能力。
 
-本插件不读取环境中的 Key，不把 Key 放进模型提示词、URL、Git 或日志；只在固定 Google HTTPS 端点的 `x-goog-api-key` 请求头中发送，不跟随重定向。错误日志只有固定类别，不含原始响应或异常；异常回显的 Key 也会从回答中移除。不要在 QQ 中发送 Key。
+本插件不读取环境中的 Key，不把 Key 放进模型提示词、URL、Git 或日志；只在固定 Google HTTPS 端点的 `x-goog-api-key` 请求头中发送，不跟随重定向。网络错误日志包含固定类别，以及经过 Key 脱敏、控制字符清理和限长的异常名称（64 字符）与消息（200 字符），字段为 `data.error.name` 和 `data.error.message`；不记录请求头、请求体、响应正文、stack 或 cause。异常回显的 Key 也会从回答中移除。不要在 QQ 中发送 Key。
 
 模型 ID 及免费层已按 [Google 模型页](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) 和[价格页](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.5-flash-lite) 核对（2026-10-29）。实际可用性、地区和额度以你的 Google 项目为准；插件不会修改计费设置，也无法把已有付费项目强制变为免费项目。
 
