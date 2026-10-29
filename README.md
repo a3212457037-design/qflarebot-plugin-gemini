@@ -49,7 +49,7 @@
 | `model` | `gemini-3.5-flash-lite` | 后台下拉选择默认模型；未单独选择的会话跟随它 |
 | `maxInputChars` | 500 | 1–1000 个 Unicode 码点 |
 | `maxOutputTokens` | 65536 | 64–65536 Token，允许的上限，不要求每次用满 |
-| `timeoutMs` | 24000 | 1000–24000 毫秒；搜索与生成共用 24 秒窗口 |
+| `timeoutMs` | 27000 | 1000–27000 毫秒；搜索与生成共用 27 秒窗口 |
 | `ignoredCommandPrefixes` | `["/"]` | 额外跳过的命令前缀；最多 16 项，每项 1–32 字符；`/` 始终跳过 |
 | `enableTavilySearch` | `false` | 管理员主动开启；旧配置缺字段时关闭 |
 | `tavilyApiKey` | 空 | 面板填写，`writeOnly: true`；与 Gemini Key 分开保存 |
@@ -78,7 +78,7 @@ API 超时、429、明确的每日额度不足/402、Key 或权限错误、模�
 2. `gemini-3.6-flash`
 3. `gemini-3.8-flash`
 
-三个候选模型统一显式使用最高推理档 `generationConfig.thinkingConfig.thinkingLevel: "high"`，适用于后台默认和聊天会话选择，不新增档位设置，不发送 `thinkingBudget` 或思考摘要。此前未设置档位，分别使用模型默认 minimal（3.5 Flash-Lite）或 medium（3.6/3.8 Flash）。[Google 原生 REST 官方说明](https://ai.google.dev/gemini-api/docs/generate-content/thinking)确认三者均支持 high。high 允许更深推理，可能增加响应时间和 Token 消耗；仍受现有 24 秒生成预算、Token 上限及平台生命周期约束。只向 QQ 返回最终答案，不输出内部思考。
+三个候选模型统一显式使用最高推理档 `generationConfig.thinkingConfig.thinkingLevel: "high"`，适用于后台默认和聊天会话选择，不新增档位设置，不发送 `thinkingBudget` 或思考摘要。此前未设置档位，分别使用模型默认 minimal（3.5 Flash-Lite）或 medium（3.6/3.8 Flash）。[Google 原生 REST 官方说明](https://ai.google.dev/gemini-api/docs/generate-content/thinking)确认三者均支持 high。high 允许更深推理，可能增加响应时间和 Token 消耗；仍受现有 27 秒生成预算、Token 上限及平台生命周期约束。只向 QQ 返回最终答案，不输出内部思考。
 
 模型 ID 和 65,536 最大输出 Token 已按 [3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)、[3.6 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash)、[3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) 官方页核对。候选列表不等于你的 Google 项目已获全部授权；实际权限、额度、速度和计费按该项目及[官方价格页](https://ai.google.dev/gemini-api/docs/pricing)为准。选择时只保存偏好，不调用模型或修改计费；下一次提问才使用该模型，失败保留原错误提示，不自动回退到其他模型重试。
 
@@ -108,7 +108,7 @@ QQ 官方的[新版单聊接口](https://bot.q.qq.com/wiki/develop/api-v2/autoge
 
 历史仍最多 6 轮完整问答，模型回复不再受旧 500 字符校验；存储使用 KV 自身 25 MiB 单值容量。Gemini JSON 响应的异常内存保护提高到 8 MiB，Tavily 保留原有 64 KiB 异常响应保护；这些是传输/存储保护，不是正文裁剪。超出容量会明确走失败路径，不悄悄截掉尾文。
 
-QFlareBot 的 Webhook 立即 ACK，再用 `waitUntil` 分发；[Cloudflare 官方限制](https://developers.cloudflare.com/workers/platform/limits/#duration)是响应后最多再运行约 **30 秒**，不能把插件超时改成几分钟来突破。搜索与 Gemini 合计最多 24 秒；默认 API 超时提高至 24000ms，普通聊天可比原 15 秒等待更久，搜索耗时会扣除。约 27 秒后停止启动后续正文段并保留剩余内容。SDK 自己的一次发送可能耗时较长，平台仍可能中止任务；65,536 Token 不保证在此部署的时间窗口内全部生成。没有修改核心、后台任务架构或付费服务。
+QFlareBot 的 Webhook 立即 ACK，再用 `waitUntil` 分发；[Cloudflare 官方限制](https://developers.cloudflare.com/workers/platform/limits/#duration)是响应后最多再运行约 **30 秒**，不能把插件超时改成几分钟来突破。搜索与 Gemini 合计最多 27 秒；默认 API 超时提高至 27000ms，普通聊天可比原 15 秒等待更久，搜索耗时会扣除。约 29 秒后停止启动后续正文段并保留剩余内容。SDK 自己的一次发送可能耗时较长，平台仍可能中止任务；65,536 Token 不保证在此部署的时间窗口内全部生成。没有修改核心、后台任务架构或付费服务。
 
 ## Tavily 联网搜索
 
@@ -179,7 +179,7 @@ SDK/CLI 未发布到 npm，`devDependencies` 的 `file:../QFlareBot/...` 是官�
 
 ## 验证边界
 
-已完成：类型检查、官方 CLI 构建、根 manifest 一致性检查、261 项单元/框架联测、本地 workerd 中的 16 项场景冒烟。覆盖普通聊天、命令、共用历史/冷却、6 轮裁剪、KV TTL、会话隔离、损坏数据、重置并发、Tavily 规则与强制搜索、失败/超时/额度保护、双密钥隐藏、Google 停用、来源校验/去重、长回答分段与 more、24 秒共同预算和诊断保护。内置 `sid`、T2I 共存；框架仓库无受版本控制文件变更。
+已完成：类型检查、官方 CLI 构建、根 manifest 一致性检查、265 项单元/框架联测、本地 workerd 中的 16 项场景冒烟。覆盖普通聊天、命令、共用历史/冷却、6 轮裁剪、KV TTL、会话隔离、损坏数据、重置并发、Tavily 规则与强制搜索、失败/超时/额度保护、双密钥隐藏、Google 停用、来源校验/去重、长回答分段与 more、27 秒共同预算和诊断保护。内置 `sid`、T2I 共存；框架仓库无受版本控制文件变更。
 
 尚未完成：此版线上更新、真实 Tavily/Gemini Key 和项目额度、Cloudflare 边缘到 Google 的连通性、QQ 实际投递及长时间运行。开发验证中的模型响应均为本地测试替身，未使用用户的 Key，未请求真实 Tavily 搜索或 Google 推理，未修改线上机器人配置。源码发布版本见本仓库提交历史。详细结果见 [VERIFICATION.md](VERIFICATION.md)。
 

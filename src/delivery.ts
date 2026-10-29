@@ -5,8 +5,8 @@ import { conversationKey, HISTORY_TTL_SECONDS, KV_VALUE_BYTES } from './history.
 // 官方文档未给纯文本统一的字符/字节数；这是保守的单条传输分段值，不限制总正文。
 // 平台明确返回 40054007 时进一步缩小分段，原文仍在 KV 中，不截掉后半段。
 export const QQ_PART_BYTES = 2000
-export const GENERATION_BUDGET_MS = 24000
-export const TURN_BUDGET_MS = 27000
+export const GENERATION_BUDGET_MS = 27000
+export const TURN_BUDGET_MS = 29000
 export const MORE_TIP = '本次消息的回复条数或执行时间有限，剩余正文已保留；请发送 /more 继续领取（群聊需 @机器人），不会重新调用 AI。'
 export interface PendingReply { id: string; text: string; updatedAt: number; offset: number }
 

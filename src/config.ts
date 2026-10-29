@@ -22,7 +22,7 @@ export const defaultConfig: Config = {
   model: MODEL,
   maxInputChars: 500,
   maxOutputTokens: 65536,
-  timeoutMs: 24000,
+  timeoutMs: 27000,
   ignoredCommandPrefixes: ['/'],
   enableGoogleSearch: false,
   enableTavilySearch: false,
@@ -32,7 +32,7 @@ export const defaultConfig: Config = {
 const ranges = {
   maxInputChars: [1, 1000],
   maxOutputTokens: [64, 65536],
-  timeoutMs: [1000, 24000],
+  timeoutMs: [1000, 27000],
 } as const
 
 const integer = (key: keyof typeof ranges, title: string) => ({
@@ -58,8 +58,8 @@ export const configSchema: JsonSchema = {
       description: '默认使用模型官方上限 65536，只是允许的最大输出量；闲聊仍简洁，详细问题再展开。',
     },
     timeoutMs: {
-      ...integer('timeoutMs', 'API 超时（毫秒，最多 24000）'),
-      description: '搜索与模型调用合计最多 24 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。',
+      ...integer('timeoutMs', 'API 超时（毫秒，最多 27000）'),
+      description: '搜索与模型调用合计最多 27 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。',
     },
     ignoredCommandPrefixes: {
       type: 'array', title: '跳过的命令前缀', default: ['/'], maxItems: 16,

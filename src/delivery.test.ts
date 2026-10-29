@@ -58,7 +58,7 @@ describe('无总字符上限与模型参数', () => {
     await expect(askGemini('问题', config, fetcher)).rejects.toMatchObject({ code: 'response' })
   })
   it('长模型回复进入6轮历史，第二轮不会因500字符校验丢失上下文', async () => {
-    const text = '答案'.repeat(20000)
+    const text = '答案'.repeat(26000)
     const history = [message('user', '上轮问题'), message('model', text)]
     expect(parseHistory(JSON.stringify({ updatedAt: Date.now(), messages: history }))).toEqual(history)
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(answer())
@@ -193,20 +193,26 @@ describe('QQ UTF-8 分段与持续领取', () => {
 })
 
 describe('30秒后台生命周期内的超时预算', () => {
-  it('24秒以前仍可成功，不再固定15秒失败', async () => {
+  it('默认及上限为27000，旧24000配置继续有效', () => {
+    expect(defaultConfig.timeoutMs).toBe(27000)
+    expect(readConfig({ ...config, timeoutMs: 24000 })!.timeoutMs).toBe(24000)
+    expect(readConfig({ ...config, timeoutMs: 27000 })!.timeoutMs).toBe(27000)
+    expect(readConfig({ ...config, timeoutMs: 27001 })).toBeNull()
+  })
+  it('26秒首字延迟仍可成功，高档推理不在24秒被中止', async () => {
     vi.useFakeTimers()
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(answer()), 20000)))
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(answer()), 26000)))
     const pending = runCommand(createGeminiPlugin(fetcher), 'ai', '问题', { ctx: { config } })
-    await vi.advanceTimersByTimeAsync(20001)
+    await vi.advanceTimersByTimeAsync(26001)
     expect((await pending).replies).toEqual(['回答'])
   })
-  it('搜索耗时计入24秒共同预算，不叠加成32秒', async () => {
+  it('搜索耗时计入27秒共同预算，不叠加成35秒', async () => {
     vi.useFakeTimers()
     const fetcher = vi.fn<typeof fetch>().mockImplementation((url) => url === TAVILY_ENDPOINT
       ? new Promise((resolve) => setTimeout(() => resolve(Response.json({ results: [{ title: '资料', url: 'https://a.test/', content: '信息' }] })), 7000))
       : new Promise(() => {}))
     const pending = runCommand(createGeminiPlugin(fetcher), 'search', '新闻', { ctx: { config: { ...config, enableTavilySearch: true } } })
-    await vi.advanceTimersByTimeAsync(24001)
+    await vi.advanceTimersByTimeAsync(27001)
     expect((await pending).replies).toEqual([tips.timeout])
     expect(fetcher.mock.calls[1]![1]!.signal!.aborted).toBe(true)
   })

@@ -114,11 +114,11 @@
       },
       "timeoutMs": {
         "type": "integer",
-        "title": "API 超时（毫秒，最多 24000）",
-        "default": 24000,
+        "title": "API 超时（毫秒，最多 27000）",
+        "default": 27000,
         "minimum": 1000,
-        "maximum": 24000,
-        "description": "搜索与模型调用合计最多 24 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。"
+        "maximum": 27000,
+        "description": "搜索与模型调用合计最多 27 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。"
       },
       "ignoredCommandPrefixes": {
         "type": "array",
@@ -161,7 +161,7 @@
     "model": "gemini-3.5-flash-lite",
     "maxInputChars": 500,
     "maxOutputTokens": 65536,
-    "timeoutMs": 24000,
+    "timeoutMs": 27000,
     "ignoredCommandPrefixes": [
       "/"
     ],
