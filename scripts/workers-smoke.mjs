@@ -57,7 +57,7 @@ const { outputFiles } = await build({
             ? await plugin.regex[0].handler({ session, ctx, match: ['你'] })
             : await plugin.commands.ai.handler({ session, ctx, argText: '你好' });
           if (url.searchParams.get('mode') === 'model' || url.searchParams.get('mode') === 'backend') {
-            return Response.json({reply: result ?? null, calls, endpoint, modelChoice: modelChoice ?? null, defaultModel: ctx.config.model});
+            return Response.json({reply: result ?? null, calls, endpoint, modelChoice: modelChoice ?? null, defaultModel: ctx.config.model, thinking: sent.generationConfig.thinkingConfig});
           }
           if (url.searchParams.get('mode') === 'long') {
             const firstBatch = [...replies];
@@ -128,10 +128,12 @@ try {
     assert.equal(result.endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
     assert.equal(result.calls, 1);
     assert.equal(result.defaultModel, 'gemini-3.5-flash-lite');
+    assert.deepEqual(result.thinking, {thinkingLevel: 'high'});
   }
   const backend = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=backend&defaultModel=gemini-3.6-flash')).json();
   assert.equal(backend.endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent');
   assert.equal(backend.calls, 1);
+  assert.deepEqual(backend.thinking, {thinkingLevel: 'high'});
   const reset = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=reset')).json()
   assert.deepEqual(reset, { reply: '当前会话的对话历史已清除。', calls: 0, entries: 0 })
   console.log('本地 workerd：16 项通过，覆盖普通文本、命令、KV/TTL、模型切换/后台默认、Tavily、长回复分段/more、Google 停用与 reset（未连接 Tavily / Google / QQ）')

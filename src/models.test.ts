@@ -50,9 +50,19 @@ describe('后台默认模型与固定 REST 主机', () => {
       redirect: 'manual', headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },
     }))
     const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string)
-    expect(body.generationConfig).toEqual({ maxOutputTokens: 65536 })
+    expect(body.generationConfig).toEqual({ maxOutputTokens: 65536, thinkingConfig: { thinkingLevel: 'high' } })
     expect(body).not.toHaveProperty('tools')
     expect(JSON.stringify(body)).not.toContain(config.apiKey)
+  })
+  it.each(MODEL_IDS)('%s 高档推理只返回最终正文，不回显思考或签名', async (model) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [
+      { thought: true, text: '内部思考', thoughtSignature: 'private-signature' }, { text: '最终答案' },
+    ] } }] }))
+    expect(await askGemini('问题', { ...config, model }, fetcher)).toBe('最终答案')
+    const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string)
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'high' })
+    expect(body.generationConfig.thinkingConfig).not.toHaveProperty('thinkingBudget')
+    expect(body.generationConfig.thinkingConfig).not.toHaveProperty('includeThoughts')
   })
   it('直接调用请求层也拒绝非法模型，不能把 Key 送往任意主机', async () => {
     const fetcher = vi.fn<typeof fetch>()

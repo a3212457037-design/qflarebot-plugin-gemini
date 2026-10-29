@@ -37,7 +37,7 @@ describe('Google 原生搜索停用与共用来源格式化', () => {
     expect(body).not.toHaveProperty('tools')
     expect(readConfig({ ...config, enableGoogleSearch: true })!.enableGoogleSearch).toBe(false)
     expect(body.contents).toEqual([...history, message('user', '新问题')])
-    expect(body.generationConfig).toEqual({ maxOutputTokens: config.maxOutputTokens })
+    expect(body.generationConfig).toEqual({ maxOutputTokens: config.maxOutputTokens, thinkingConfig: { thinkingLevel: 'high' } })
     expect(body.systemInstruction.parts[0].text).toContain('上分难')
     expect(JSON.stringify(body)).not.toContain(config.apiKey)
   })

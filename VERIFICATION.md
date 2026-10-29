@@ -1,5 +1,14 @@
 # 本地验证记录
 
+## 最高推理档增量验证（0.1.0，2026-10-29）
+
+基线 main `cb21e530f3b4ec6f0b511c79ef3658b34bc6bf79`，开始时 Git 干净。三个候选模型统一显式发送 `generationConfig.thinkingConfig.thinkingLevel: "high"`，不发送 thinkingBudget/includeThoughts，不改变模型、端点、Key、超时、上下文或 Tavily。
+
+- 完整测试 264/264 通过，包含三模型 high 请求、内部思考/签名不输出及原有回归。
+- 类型检查、官方 CLI 构建、manifest 一致性检查通过；manifest 无需修改，版本保持 0.1.0。
+- 本地实际 workerd 16 项通过，聊天切换及后台默认请求均断言 high。
+- 外部 API 为本地替身，未使用真实 Key 进行推理。high 可能增加耗时及 Token 消耗，实际 QQ/Google 延迟仍需线上观察。发布状态另行核对。
+
 ## 模型选择增量验证（0.1.0，2026-10-29）
 
 基线 main `fddf2a8c8ed4e11d6562cb7c163ace00b0a0ce4e`；开始时Git干净，outputs与基线文本一致。用户确认聊天切换只影响当前用户当前会话，后台配置提供默认模型。默认仍为gemini-3.5-flash-lite；新增gemini-3.6-flash、gemini-3.8-flash候选，不修改Key、主机或计费设置。

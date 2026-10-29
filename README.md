@@ -78,6 +78,8 @@ API 超时、429、明确的每日额度不足/402、Key 或权限错误、模�
 2. `gemini-3.6-flash`
 3. `gemini-3.8-flash`
 
+三个候选模型统一显式使用最高推理档 `generationConfig.thinkingConfig.thinkingLevel: "high"`，适用于后台默认和聊天会话选择，不新增档位设置，不发送 `thinkingBudget` 或思考摘要。此前未设置档位，分别使用模型默认 minimal（3.5 Flash-Lite）或 medium（3.6/3.8 Flash）。[Google 原生 REST 官方说明](https://ai.google.dev/gemini-api/docs/generate-content/thinking)确认三者均支持 high。high 允许更深推理，可能增加响应时间和 Token 消耗；仍受现有 24 秒生成预算、Token 上限及平台生命周期约束。只向 QQ 返回最终答案，不输出内部思考。
+
 模型 ID 和 65,536 最大输出 Token 已按 [3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)、[3.6 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash)、[3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) 官方页核对。候选列表不等于你的 Google 项目已获全部授权；实际权限、额度、速度和计费按该项目及[官方价格页](https://ai.google.dev/gemini-api/docs/pricing)为准。选择时只保存偏好，不调用模型或修改计费；下一次提问才使用该模型，失败保留原错误提示，不自动回退到其他模型重试。
 
 私聊或群 @ 可发送：

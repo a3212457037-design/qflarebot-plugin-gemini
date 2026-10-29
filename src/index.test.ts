@@ -29,7 +29,7 @@ describe('QQ 文本问答', () => {
     expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { 'x-goog-api-key': config.apiKey } })
     const body = JSON.parse(init!.body as string)
     expect(body.contents).toEqual([{ role: 'user', parts: [{ text: '你好' }] }])
-    expect(body.generationConfig).toEqual({ maxOutputTokens: 65536 })
+    expect(body.generationConfig).toEqual({ maxOutputTokens: 65536, thinkingConfig: { thinkingLevel: 'high' } })
     expect(body.tools).toBeUndefined()
     expect(body.cachedContent).toBeUndefined()
     expect(String(init!.body)).not.toContain(config.apiKey)
