@@ -144,7 +144,9 @@ describe('会话上下文', () => {
 
   it('KV 读写失败仍返回有效回答，日志不包含存储异常内容或 Key', async () => {
     const bot = harness()
-    vi.spyOn(bot.kv, 'get').mockRejectedValue(new Error(`private-kv ${config.apiKey}`))
+    const get = bot.kv.get.bind(bot.kv)
+    vi.spyOn(bot.kv, 'get').mockImplementation((key) => key.startsWith('history:')
+      ? Promise.reject(new Error(`private-kv ${config.apiKey}`)) : get(key))
     vi.spyOn(bot.kv, 'put').mockRejectedValue(new Error(`private-kv ${config.apiKey}`))
     const warn = vi.spyOn(bot.ctx.logger, 'warn')
     expect(await bot.invoke('ai', '问题')).toBe('回答')

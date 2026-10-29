@@ -18,6 +18,8 @@ const { outputFiles } = await build({
           let calls = 0;
           let sent;
           let searchSent;
+          let endpoint;
+          let modelChoice;
           const plugin = createGeminiPlugin(async (_url, init) => {
             calls++;
             if (_url === 'https://api.tavily.com/search') {
@@ -25,6 +27,7 @@ const { outputFiles } = await build({
               if (url.searchParams.get('fail') === '1') return Response.json({}, {status: 432});
               return Response.json({results: [{url: 'https://source.test/', title: '来源', content: '搜索资料'}]});
             }
+            endpoint = _url;
             sent = JSON.parse(init.body);
             return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: url.searchParams.get('mode') === 'long' ? '中文😀'.repeat(2000) : 'Workers 回答成功' }] }, groundingMetadata: { groundingChunks: [{web: {uri: 'https://source.test/', title: '来源'}}] } }] });
           });
@@ -38,11 +41,14 @@ const { outputFiles } = await build({
           };
           const data = new Map();
           const writes = [];
-          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxOutputTokens: 65536, timeoutMs: 24000, enableGoogleSearch: true, enableTavilySearch: url.searchParams.get('tavily') === '1', tavilyApiKey: 'local-tavily-test-credential' }, logger: { warn() {} }, kv: {
+          const ctx = { config: { apiKey: 'local-test-credential', model: url.searchParams.get('defaultModel') ?? 'gemini-3.5-flash-lite', maxInputChars: 500, maxOutputTokens: 65536, timeoutMs: 24000, enableGoogleSearch: true, enableTavilySearch: url.searchParams.get('tavily') === '1', tavilyApiKey: 'local-tavily-test-credential' }, logger: { warn() {} }, kv: {
             async get(key) { return data.get(key) ?? null; },
             async put(key, value, options) { data.set(key, JSON.stringify(value)); writes.push({ value, options }); },
             async delete(key) { data.delete(key); }
           } };
+          if (url.searchParams.get('mode') === 'model') {
+            modelChoice = await plugin.commands.model.handler({session, ctx, argText: '3'});
+          }
           if (url.searchParams.get('mode') === 'reset') {
             const result = await plugin.commands.reset.handler({ session, ctx, argText: '' });
             return Response.json({ reply: result ?? null, calls, entries: data.size });
@@ -50,6 +56,9 @@ const { outputFiles } = await build({
           const result = url.searchParams.get('mode') === 'text'
             ? await plugin.regex[0].handler({ session, ctx, match: ['你'] })
             : await plugin.commands.ai.handler({ session, ctx, argText: '你好' });
+          if (url.searchParams.get('mode') === 'model' || url.searchParams.get('mode') === 'backend') {
+            return Response.json({reply: result ?? null, calls, endpoint, modelChoice: modelChoice ?? null, defaultModel: ctx.config.model});
+          }
           if (url.searchParams.get('mode') === 'long') {
             const firstBatch = [...replies];
             replies.length = 0;
@@ -112,9 +121,20 @@ try {
     assert.ok(result.progress[1] > result.progress[0]);
     for (const part of [...result.firstBatch, ...result.secondBatch]) assert.ok(new TextEncoder().encode(part).byteLength <= 2000);
   }
+  for (const scene of ['c2c', 'group']) {
+    const result = await (await mf.dispatchFetch(`https://smoke.test/${scene}?at=1&mode=model`)).json();
+    assert.equal(result.reply, 'Workers 回答成功');
+    assert.ok(result.modelChoice.includes('gemini-3.8-flash'));
+    assert.equal(result.endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
+    assert.equal(result.calls, 1);
+    assert.equal(result.defaultModel, 'gemini-3.5-flash-lite');
+  }
+  const backend = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=backend&defaultModel=gemini-3.6-flash')).json();
+  assert.equal(backend.endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent');
+  assert.equal(backend.calls, 1);
   const reset = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=reset')).json()
   assert.deepEqual(reset, { reply: '当前会话的对话历史已清除。', calls: 0, entries: 0 })
-  console.log('本地 workerd：13 项通过，覆盖普通文本、命令、KV/TTL、Tavily、长回复分段/more、Google 停用与 reset（未连接 Tavily / Google / QQ）')
+  console.log('本地 workerd：16 项通过，覆盖普通文本、命令、KV/TTL、模型切换/后台默认、Tavily、长回复分段/more、Google 停用与 reset（未连接 Tavily / Google / QQ）')
 } finally {
   await mf.dispose()
 }

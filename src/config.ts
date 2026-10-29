@@ -1,7 +1,9 @@
 import type { JsonSchema } from '@qqbot/sdk'
+import { MODEL_IDS, isModelId, type ModelId } from './models.js'
 
 export interface Config {
   apiKey: string
+  model: ModelId
   maxInputChars: number
   /** 兼容旧快照，已停用，不再裁剪回复。 */
   maxReplyChars?: number
@@ -17,6 +19,7 @@ export const MODEL = 'gemini-3.5-flash-lite'
 export const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 export const defaultConfig: Config = {
   apiKey: '',
+  model: MODEL,
   maxInputChars: 500,
   maxOutputTokens: 65536,
   timeoutMs: 24000,
@@ -40,6 +43,10 @@ const integer = (key: keyof typeof ranges, title: string) => ({
 export const configSchema: JsonSchema = {
   type: 'object',
   properties: {
+    model: {
+      type: 'string', title: '默认聊天模型', enum: [...MODEL_IDS], default: MODEL,
+      description: '未单独选择模型的会话跟随此值。聊天用 /model 切换当前会话，/model default 恢复跟随。共用现有 Gemini Key；权限、速度和额度取决于 Google 项目，不会自动换模型或开启计费。',
+    },
     apiKey: {
       type: 'string', title: 'Gemini API Key', writeOnly: true, maxLength: 4096,
       description: '在 [Google AI Studio](https://aistudio.google.com/api-keys) 创建。仅在此设置，不要发送到 QQ。保存后不回显。',
@@ -75,6 +82,7 @@ export const configSchema: JsonSchema = {
 export function readConfig(value: Config): Config | null {
   if (!value || typeof value !== 'object') return null
   const config = { ...defaultConfig, ...value }
+  if (!isModelId(config.model)) return null
   delete config.maxReplyChars
   // 保留旧字段的兼容性，但旧配置即使为 true 也不再发送 Google tools。
   config.enableGoogleSearch = false

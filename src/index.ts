@@ -6,6 +6,7 @@ import { conversationKey, loadHistory, saveHistory, type ChatMessage } from './h
 import { needsSearch, reserveSearch, searchTavily, TavilyError, SEARCH_INTERVAL_MS } from './tavily.js'
 import { hideKey } from './grounding.js'
 import { deliverAnswer, deliverPending, loadPending, pendingKeys, GENERATION_BUDGET_MS, TURN_BUDGET_MS } from './delivery.js'
+import { resolveModel, parseModelChoice, saveModel, modelMenu, ModelStateError } from './models.js'
 
 export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(...args)) {
   // 只保存冷却时间，不保存问答。Worker isolate 重建或扩容后会重置，非全局强限流。
@@ -47,6 +48,7 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     try {
       const pending = await loadPending(ctx, session).catch(() => null)
       if (pending) return '上一条长回答尚未发完，请用 /more 继续领取；或用 /reset 清除后再提新问题。'
+      config.model = (await resolveModel(ctx, session, config.model)).model
       let results
       if (search) {
         if (now < nextSearchAt) throw new TavilyError('rate')
@@ -72,6 +74,10 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
       }
       return await deliverAnswer(session, ctx, reply, now + TURN_BUDGET_MS, () => resetDuringRequest)
     } catch (error) {
+      if (error instanceof ModelStateError) {
+        ctx.logger.warn('Gemini 会话模型读取失败', { code: error.code })
+        return error.message
+      }
       if (error instanceof TavilyError) {
         ctx.logger.warn('Tavily 搜索未完成', { code: error.code })
         return error.message
@@ -109,6 +115,33 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
         usage: '/search <关键词>',
         scenes: ['c2c', 'group'],
         handler: (input) => chat(input, true),
+      },
+      model: {
+        description: '查看或切换当前会话模型',
+        usage: '/model [序号|模型ID|default]',
+        scenes: ['c2c', 'group'],
+        async handler({ session, ctx, argText }) {
+          if ((session.scene !== 'c2c' && session.scene !== 'group') || !session.canReply
+            || (session.scene === 'group' && !session.atMe) || !isMessageEvent(session.event) || session.attachments.length) return
+          const config = readConfig(ctx.config)
+          if (!config) return 'AI 配置异常，请联系机器人管理员。'
+          const choice = argText.trim().toLowerCase()
+          try {
+            if (!choice || choice === 'list') return modelMenu(await resolveModel(ctx, session, config.model), config.model)
+            const selected = choice === 'default' ? null : parseModelChoice(choice)
+            if (choice !== 'default' && selected === null) return '模型不在可选列表中，请发送 /model 查看；可用序号或完整模型ID切换。'
+            if (busy) return 'AI 正在回答，请稍后再切换模型。'
+            busy = true
+            try {
+              if (!await saveModel(ctx, session, selected)) return '无法识别当前会话，模型未切换。'
+            } finally { busy = false }
+            return selected === null ? `本会话已恢复跟随后台默认：${config.model}。上下文保留。`
+              : `本会话已切换为 ${selected}，从下一条问题生效。上下文保留；可用性和额度以 Google 项目为准。`
+          } catch (error) {
+            ctx.logger.warn('Gemini 会话模型设置未完成', { code: error instanceof ModelStateError ? error.code : 'model_state' })
+            return error instanceof ModelStateError ? error.message : '模型选择暂时不可用，请稍后再试。'
+          }
+        },
       },
       more: {
         description: '领取长回答剩余正文',

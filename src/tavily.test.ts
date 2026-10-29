@@ -213,7 +213,12 @@ describe('KV 用量保护（辅助计数，非费用封顶）', () => {
     expect(kv.data.get(SEARCH_USAGE_KEY)).toBe(raw)
   })
   it.each(['get', 'put'] as const)('KV %s 失败不调用 API', async (method) => {
-    const bot = harness(); vi.spyOn(bot.ctx.kv, method).mockRejectedValue(new Error(config.tavilyApiKey))
+    const bot = harness()
+    if (method === 'get') {
+      const get = bot.ctx.kv.get.bind(bot.ctx.kv)
+      vi.spyOn(bot.ctx.kv, 'get').mockImplementation((key) => key === SEARCH_USAGE_KEY
+        ? Promise.reject(new Error(config.tavilyApiKey)) : get(key))
+    } else vi.spyOn(bot.ctx.kv, 'put').mockRejectedValue(new Error(config.tavilyApiKey))
     expect(await bot.invoke()).toBe(searchTips.storage); expect(bot.fetcher).not.toHaveBeenCalled()
   })
   it('失败搜索也保守计一次；预算用尽不调用 API', async () => {

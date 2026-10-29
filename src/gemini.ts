@@ -1,6 +1,7 @@
 // Gemini 请求和文本 part 解析改编自 clown145/qflarebot-plugin-llm（MIT）。
 // 来源、提交和完整许可见 THIRD_PARTY_NOTICES.md、licenses/。
-import { ENDPOINT, type Config } from './config.js'
+import { MODEL, type Config } from './config.js'
+import { isModelId, modelEndpoint } from './models.js'
 import { appendSources, hideKey } from './grounding.js'
 import type { ChatMessage } from './history.js'
 import type { SearchResult } from './tavily.js'
@@ -104,6 +105,8 @@ export function cleanReply(text: string, incomplete = false): string {
 }
 
 export async function askGemini(question: string, config: Config, fetcher: typeof fetch = fetch, history: ChatMessage[] = [], search?: SearchResult[]): Promise<string> {
+  const model = config.model ?? MODEL
+  if (!isModelId(model)) throw new GeminiError('model')
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
@@ -113,7 +116,7 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
     }, config.timeoutMs)
   })
   const request = async (): Promise<string> => {
-    const response = await fetcher(ENDPOINT, {
+    const response = await fetcher(modelEndpoint(model), {
       method: 'POST',
       redirect: 'manual', // Workers 支持 manual；Key 只发往固定的 Google HTTPS 地址。
       headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },

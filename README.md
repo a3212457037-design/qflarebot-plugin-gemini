@@ -1,12 +1,13 @@
 # QFlareBot Gemini 文本问答插件
 
-为「上分难」提供中文文本问答、最近 6 轮会话上下文及默认关闭的 Tavily 联网搜索，适配 QFlareBot v0.6.1。固定使用 Google 原生 REST API 和模型 `gemini-3.5-flash-lite`，无第三方运行依赖。
+为「上分难」提供中文文本问答、最近 6 轮会话上下文及默认关闭的 Tavily 联网搜索，适配 QFlareBot v0.6.1。使用 Google 原生 REST API，默认模型为 `gemini-3.5-flash-lite`，支持后台默认与当前会话模型切换，无第三方运行依赖。
 
 ## 使用
 
 - QQ 私聊：直接发送 `你好` 即可聊天，不需要前缀。
 - QQ 群聊：先 @上分难，再发送 `你好`。
 - 原有 `/ai 你好` 用法继续有效。
+- `/model` 查看模型列表和当前选择；`/model 2` 或 `/model gemini-3.6-flash` 切换当前会话；`/model default` 恢复跟随后台。群聊仍需 @机器人。
 - `/search 关键词` 强制搜索；开启 Tavily 后，新闻、最新消息、实时动态等问题会按简单规则自动搜索。群聊仍需 @机器人。
 - `/reset` 清除当前用户当前会话的上下文与待发送长正文，不调用 Gemini；群内使用时也需 @机器人。
 - 超长回答自动分段；看到提示后发送 `/more` 继续领取已生成的正文，不会重新生成或再次搜索。
@@ -34,7 +35,7 @@
    git push -u origin main
    ```
 
-4. QFlareBot 面板 → 添加插件 → **仓库链接**，粘贴 `https://github.com/a3212457037-design/qflarebot-plugin-gemini`。预检应显示插件 `gemini`、命令 `ai` / `search` / `more` / `reset`、权限 `net` / `kv`。若已有其他插件占用 `/ai`、`/search`、`/more` 或 `/reset`，先自行决定保留哪个，避免命令冲突。
+4. QFlareBot 面板 → 添加插件 → **仓库链接**，粘贴 `https://github.com/a3212457037-design/qflarebot-plugin-gemini`。预检应显示插件 `gemini`、命令 `ai` / `search` / `model` / `more` / `reset`、权限 `net` / `kv`。若已有其他插件占用 `/ai`、`/search`、`/model`、`/more` 或 `/reset`，先自行决定保留哪个，避免命令冲突。
 5. 确认安装并等待 Workers Builds 构建、健康检查和上线。源码由框架自己的 SDK 编译，不需要上传 `dist/`，也不需要更改 Worker 绑定。
 6. 在「Gemini 文本问答」的插件设置中填入 API Key 并保存；保存后只显示「已设置」。再用 QQ 私聊和群 @ 分别测试。
 
@@ -45,6 +46,7 @@
 | 字段 | 默认值 | 允许范围 |
 | --- | --- | --- |
 | `apiKey` | 空，未配置时不调用 API | 仅在面板设置，`writeOnly: true` |
+| `model` | `gemini-3.5-flash-lite` | 后台下拉选择默认模型；未单独选择的会话跟随它 |
 | `maxInputChars` | 500 | 1–1000 个 Unicode 码点 |
 | `maxOutputTokens` | 65536 | 64–65536 Token，允许的上限，不要求每次用满 |
 | `timeoutMs` | 24000 | 1000–24000 毫秒；搜索与生成共用 24 秒窗口 |
@@ -68,9 +70,33 @@ API 超时、429、明确的每日额度不足/402、Key 或权限错误、模�
 
 `/reset` 只删除当前用户当前会话的历史与待发送正文/进度，空历史也正常提示，不清除 Key、配置、搜索用量或冷却。当前 isolate 内重置进行中的请求时，已发送的模型调用仍可能返回，但不会重新保存已重置的历史。KV 本身是最终一致存储，多个 isolate 间不提供强一致的会话锁；本插件不为此新增付费服务。存储故障时尽量保留有效回答，并仅记录 `history_read` / `history_write` / `history_reset` 等固定错误类别，历史可能未能保存。
 
+## 后台默认与聊天切换模型
+
+后台「Gemini 文本问答 → 默认聊天模型」使用 SDK 已有的 enum 下拉。当前提供三种已核实的文本模型，使用同一把 Gemini Key 与同一个 `generateContent` REST 请求格式：
+
+1. `gemini-3.5-flash-lite`（保留当前默认）
+2. `gemini-3.6-flash`
+3. `gemini-3.8-flash`
+
+模型 ID 和 65,536 最大输出 Token 已按 [3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)、[3.6 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash)、[3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) 官方页核对。候选列表不等于你的 Google 项目已获全部授权；实际权限、额度、速度和计费按该项目及[官方价格页](https://ai.google.dev/gemini-api/docs/pricing)为准。选择时只保存偏好，不调用模型或修改计费；下一次提问才使用该模型，失败保留原错误提示，不自动回退到其他模型重试。
+
+私聊或群 @ 可发送：
+
+```text
+/model                         查看当前模型、后台默认与列表
+/model list                    同上
+/model 2                       当前会话切换到 gemini-3.6-flash
+/model gemini-3.8-flash         用完整ID切换
+/model default                 取消本会话选择，恢复跟随后台
+```
+
+聊天选择按机器人/用户/群隔离，保存在插件自己的 `model:history:...` KV 键中，是持续有效的会话偏好，不随历史 24 小时 TTL 过期。后台修改默认值只影响跟随者，不覆盖已单独选择的会话。切换保留原有 6 轮上下文和未领取的长正文；`/more` 仍领取已生成的旧正文，不重新生成；`/reset` 清历史与余文，保留模型选择。聊天不能修改其他用户或后台全局默认。
+
+命令不调用 Gemini/Tavily，不消耗搜索尝试额度，也不清除忙碌或冷却。请求进行中可以查看列表，但切换需等回答结束。Key 只发送到固定 Google HTTPS 主机、只在请求头，模型严格限制为上述枚举，不能填任意 URL。模型偏好读取失败时明确提示并停止请求，避免误用其他模型；损坏/不支持的存储值安全忽略、使用后台默认，不输出原始记录或异常。
+
 ## 长回答、QQ 分段与实际平台限制
 
-模型保持 `gemini-3.5-flash-lite`，默认 `maxOutputTokens: 65536`，与 [Google 官方模型页](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) 的最大输出 Token 数一致。没有插件总回复字符上限；上限不代表模型必须写满，普通闲聊简洁，详细问题再展开。旧配置中的小 Token 值与 15000ms 超时继续合法且保留；需要在面板主动提高，旧 `maxReplyChars` 则不再生效。
+默认模型保持 `gemini-3.5-flash-lite`，三种可选模型均支持 `maxOutputTokens: 65536`，与 [Google 官方模型页](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) 的最大输出 Token 数一致。没有插件总回复字符上限；上限不代表模型必须写满，普通闲聊简洁，详细问题再展开。旧配置中的小 Token 值与 15000ms 超时继续合法且保留；需要在面板主动提高，旧 `maxReplyChars` 则不再生效。
 
 QQ 官方的[新版单聊接口](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html)写每条消息最多回复 **4 次**，群聊接口写 **5 次**；旧版官方概述对单聊也写 5 次，存在版本差异。QFlareBot v0.6.1 `session.reply` 默认限制 5 次，并且每次尝试（包括失败）都会计数。本插件采用较严格的单聊 4 次/群聊 5 次，不调用主动推送绕过限制。
 
@@ -151,7 +177,7 @@ SDK/CLI 未发布到 npm，`devDependencies` 的 `file:../QFlareBot/...` 是官�
 
 ## 验证边界
 
-已完成：类型检查、官方 CLI 构建、根 manifest 一致性检查、217 项单元/框架联测、本地 workerd 中的 13 项场景冒烟。覆盖普通聊天、命令、共用历史/冷却、6 轮裁剪、KV TTL、会话隔离、损坏数据、重置并发、Tavily 规则与强制搜索、失败/超时/额度保护、双密钥隐藏、Google 停用、来源校验/去重、长回答分段与 more、24 秒共同预算和诊断保护。内置 `sid`、T2I 共存；框架仓库无受版本控制文件变更。
+已完成：类型检查、官方 CLI 构建、根 manifest 一致性检查、261 项单元/框架联测、本地 workerd 中的 16 项场景冒烟。覆盖普通聊天、命令、共用历史/冷却、6 轮裁剪、KV TTL、会话隔离、损坏数据、重置并发、Tavily 规则与强制搜索、失败/超时/额度保护、双密钥隐藏、Google 停用、来源校验/去重、长回答分段与 more、24 秒共同预算和诊断保护。内置 `sid`、T2I 共存；框架仓库无受版本控制文件变更。
 
 尚未完成：此版线上更新、真实 Tavily/Gemini Key 和项目额度、Cloudflare 边缘到 Google 的连通性、QQ 实际投递及长时间运行。开发验证中的模型响应均为本地测试替身，未使用用户的 Key，未请求真实 Tavily 搜索或 Google 推理，未修改线上机器人配置。源码发布版本见本仓库提交历史。详细结果见 [VERIFICATION.md](VERIFICATION.md)。
 

@@ -28,6 +28,15 @@
       ]
     },
     {
+      "name": "model",
+      "description": "查看或切换当前会话模型",
+      "usage": "/model [序号|模型ID|default]",
+      "scenes": [
+        "c2c",
+        "group"
+      ]
+    },
+    {
       "name": "more",
       "description": "领取长回答剩余正文",
       "usage": "/more",
@@ -69,6 +78,17 @@
   "configSchema": {
     "type": "object",
     "properties": {
+      "model": {
+        "type": "string",
+        "title": "默认聊天模型",
+        "enum": [
+          "gemini-3.5-flash-lite",
+          "gemini-3.6-flash",
+          "gemini-3.8-flash"
+        ],
+        "default": "gemini-3.5-flash-lite",
+        "description": "未单独选择模型的会话跟随此值。聊天用 /model 切换当前会话，/model default 恢复跟随。共用现有 Gemini Key；权限、速度和额度取决于 Google 项目，不会自动换模型或开启计费。"
+      },
       "apiKey": {
         "type": "string",
         "title": "Gemini API Key",
@@ -138,6 +158,7 @@
   },
   "defaultConfig": {
     "apiKey": "",
+    "model": "gemini-3.5-flash-lite",
     "maxInputChars": 500,
     "maxOutputTokens": 65536,
     "timeoutMs": 24000,

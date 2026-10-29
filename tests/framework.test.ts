@@ -202,6 +202,20 @@ describe('官方配置校验和 writeOnly 机制', () => {
 })
 
 describe('Tavily 命令与真实 dispatcher', () => {
+  it.each(['C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'])('%s 的 /model 先于普通文本匹配，切换后实际请求使用新模型', async (type) => {
+    const bot = harness()
+    const prefix = type.startsWith('GROUP') ? '<@123456> ' : ''
+    const selected = await bot.deliver(type, prefix + '/model 2')
+    expect(selected.replies).toHaveLength(1)
+    expect(selected.replies[0]).toContain('gemini-3.6-flash')
+    expect(selected.report.matched).toEqual([{ plugin: 'gemini', kind: 'command', name: 'model' }])
+    expect(bot.fetcher).not.toHaveBeenCalled()
+    const chat = await bot.deliver(type, prefix + '你好')
+    expect(chat.replies).toEqual(['你好。'])
+    expect(bot.fetcher).toHaveBeenCalledTimes(1)
+    expect(String(bot.fetcher.mock.calls[0]![0])).toContain('/models/gemini-3.6-flash:generateContent')
+    expect(chat.report.errors).toEqual([])
+  })
   it.each(['C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'])('%s 的长回答按真实Session分段，不发主动消息或触发双回复', async (type) => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ candidates: [{ content: { parts: [{ text: '长'.repeat(6000) }] } }] }))
     const bot = harness(fetcher)
