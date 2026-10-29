@@ -269,6 +269,14 @@ async function signed(body: string, secret = btoa('fake-signing-secret'), second
   } }) }
 }
 describe('Webhook验签及回调', () => {
+  it('失败模型可显式重查一次，使用真实配置预算，已通过模型不重复生成',async()=>{
+    const b=await harness();await metaPut(b.ctx,'model:gemini-3.8-flash',{id:'v1_old',fingerprint:await keyFingerprint(config.apiKey),retrieved:false,status:'failed'})
+    const handler=b.plugin.routes!.find(r=>r.path==='/api/probe')!.handler
+    const input={ctx:b.ctx,request:new Request('https://bot.test/p/gemini/api/probe?retry=1',{method:'POST'}),params:{},authenticated:true}
+    await handler(input);await handler(input)
+    expect(b.fetcher).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(b.fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({model:'gemini-3.8-flash',generation_config:{max_output_tokens:65536}})
+  })
   it('HMAC原文验签，拒绝伪造/过期/大正文，不泄露签名密钥', async () => {
     const body = JSON.stringify({ type: 'interaction.completed', data: { id: 'v1_test' } })
     const a = await signed(body); expect(await verifyCallback(a.request, a.secret)).toEqual(JSON.parse(body))

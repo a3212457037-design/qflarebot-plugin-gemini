@@ -5,13 +5,13 @@
 
 插件设置新增 `executionMode` 下拉：`generateContent` 保留原有普通模式（兼容旧配置，默认），`background` 用 Google 官方 Interactions API 提交 `background: true, store: true`，最高 high 推理。后台提交后不发送“已收到”占用 QQ 的回复序号；完成后自动向原消息回复。普通答案不需要 `/result` 或 `/more`。
 
-启用步骤：更新插件并同意新增 `db` 声明权限；确认现有 Worker 已绑定 D1、每分钟 Cron（QFlareBot v0.6.1 模板已声明）。在插件详情打开“Gemini 后台任务”页面，点击“核验三个模型后台权限”，再点刷新。检查对三个模型各提交一次 64 Token 的简短问题并读取结果，使用当前 Worker 内已保存的 Key；不会输出 Key、原始响应或开启计费。只有核验通过的模型才能后台提交；换 Key 后需重新核验。然后将设置的“推理执行模式”改为 `background` 保存，普通 QQ 私聊即可使用；群聊仍需 @机器人。
+启用步骤：更新插件并同意新增 `db` 声明权限；确认现有 Worker 已绑定 D1、每分钟 Cron（QFlareBot v0.6.1 模板已声明）。在插件详情打开“Gemini 后台任务”页面，点击“核验三个模型后台权限”，再点刷新。检查对三个模型各提交一次简短问题并读取结果（沿用现有输出Token预算，避免低预算造成假失败），使用当前 Worker 内已保存的 Key；不会输出 Key、原始响应或开启计费。只有核验通过的模型才能后台提交；换 Key 后需重新核验。然后将设置的“推理执行模式”改为 `background` 保存，普通 QQ 私聊即可使用；群聊仍需 @机器人。
 
 - 每分钟 Cron 非阻塞读取待完成 Interaction，完成后通过 `ctx.api.sendMessage` 带原始 `messageId` 和持久化递增 `msgSeq` 发送，原六轮历史及24小时滑动TTL继续有效。不使用无限延长的 `previous_interaction_id`，每次显式带最近六轮。
 - 任务使用插件命名空间的 D1 原子唯一索引、轮询租约和发送前占用；任务、模型、QQ路由、原消息、状态与会话版本持久化。大文本和搜索资料使用插件KV（24小时TTL），无新数据库资源、DO、服务器或第三方依赖。
 - 同会话未完成时阻止新提问；切换模型影响下一轮。`/reset` 先在D1取消任务并改变会话版本，再清除历史/余文，防止旧结果成为新上下文。已在途或QQ已接收的消息无法撤回。
 - 可在后台页点击“注册完成/失败 Webhook”。仅订阅 `interaction.completed`/`interaction.failed`，通过 `/p/gemini/callback` 接收。签名密钥仅存插件D1，浏览器及日志不回显。HMAC-SHA256原文验签、5分钟时间戳窗口、16KiB正文限制；通知只唤醒任务，答案重新从Google读取。Cron与回调共用D1认领，重复通知不重复发送。回调一次最多发送一段，其余由Cron继续。
-- 项目拒绝Webhooks时保持Cron，不开启Google付费；注册/提交结果未知时不自动重复创建。权限检查有30分钟节流，轮询每次最多处理两个任务；不是费用硬上限。Google Free Tier存储后台Interaction约1天，见官方数据保留政策。
+- 项目拒绝Webhooks时保持Cron，不开启Google付费；注册/提交结果未知时不自动重复创建。权限检查有30分钟节流；失败模型可手动显式重查一次（每把Key一次），不会重复提交已通过的模型，轮询每次最多处理两个任务；不是费用硬上限。Google Free Tier存储后台Interaction约1天，见官方数据保留政策。
 - QQ单聊按60分钟、群聊5分钟窗口（提前15秒停止），单聊最多4条/群聊5条的保守条数发送，不转成主动消息。普通长度自动发完；超长回复安全UTF-8分段，剩余正文复用原KV及 `/more`。超过被动窗口无法保证自动投递，任务标为expired。
 - SDK内部QQ重试沿用同一个msg_id/msg_seq，插件不会用新序号盲目重发不确定结果。`uncertain`/`submit_unknown` 需要管理员排查或用户 `/reset`；这是避免重复投递的明确取舍，不声称跨HTTP与D1事务绝对恰好一次。
 - `timeoutMs` 在后台模式仅限制提交/查询单次HTTP（每次最多8秒），不限制Google后台推理的总时长。普通generateContent仍用27秒预算。Tavily、普通聊天、原命令和密钥脱敏继续共用现有实现。

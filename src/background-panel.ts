@@ -8,8 +8,9 @@ import { GeminiError } from './gemini.js'
 const PAGE = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel="stylesheet" href="/tokens.css">
 <style>body{font:16px system-ui;padding:20px;line-height:1.6}button{margin:8px;padding:10px}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>
 <h2>Gemini 后台任务</h2><p>保留普通模式。先核验当前 Gemini Key 的真实后台权限，再在插件设置把推理执行模式选为 background。</p>
-<p>权限检查每个模型只提交一次简短的后台问题，会使用少量 Token；不会开启计费。检查与读取均在 Worker 内使用已保存密钥。</p>
+<p>权限检查每个模型只提交一次简短的后台问题，使用现有输出预算而非强制低Token截断，会使用少量 Token；不会开启计费。检查与读取均在 Worker 内使用已保存密钥。</p>
 <button id="probe">核验三个模型后台权限</button><button id="refresh">刷新权限及任务状态</button>
+<button id="retry">仅重查失败模型（当前Key限一次）</button>
 <p>Cron 每分钟自动轮询。可选注册 Google 签名回调加快完成通知；若项目拒绝，继续使用 Cron，不升级套餐。</p>
 <button id="webhook">注册完成/失败 Webhook</button><pre id="result">正在读取…</pre>
 <p>单聊原消息最多 60 分钟、群聊 5 分钟内被动回复；普通答案自动发送，过长剩余正文用 /more。/reset 会取消旧任务。发送结果不确定时不自动重发。</p>
@@ -19,6 +20,7 @@ async function run(path,method='GET'){for(const b of document.querySelectorAll('
 try{const r=await bridge.fetch(path,{method});result.textContent=JSON.stringify(await r.json(),null,2)}catch{result.textContent='请求未完成，请刷新状态；不要连续重复注册或提交。'}
 finally{for(const b of document.querySelectorAll('button'))b.disabled=false;bridge.resize()}}
 document.getElementById('probe').onclick=()=>run('/api/probe','POST');document.getElementById('refresh').onclick=()=>run('/api/status');
+document.getElementById('retry').onclick=()=>run('/api/probe?retry=1','POST');
 document.getElementById('webhook').onclick=()=>run('/api/webhook','POST');await run('/api/status');</script></html>`
 
 interface Probe { id?: string; fingerprint: string; retrieved: boolean; status: string; code?: string }
@@ -34,19 +36,23 @@ const json = (value: unknown, status = 200) => Response.json(value, { status, he
 export function backgroundRoutes(fetcher: typeof fetch): Route<Config>[] {
   return [
     { method: 'GET', path: '/ui/', auth: 'admin', handler: () => new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } }) },
-    { method: 'POST', path: '/api/probe', auth: 'admin', async handler({ ctx }) {
+    { method: 'POST', path: '/api/probe', auth: 'admin', async handler({ ctx, request }) {
       try {
         const config = configOf(ctx); await ensureBackground(ctx)
         const fingerprint = await keyFingerprint(config.apiKey)
+        const retry = new URL(request.url).searchParams.get('retry') === '1'
         // 原子领取一次核验，重复点击不反复生成；30分钟后可重查失败权限。
         const now = Date.now()
-        const lock = await ctx.db.run(`INSERT INTO {async_meta}(name,value) VALUES ('probe_lock',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value WHERE CAST(value AS INTEGER)<?`, String(now + 1800000), String(now))
+        const lock = retry
+          ? await ctx.db.run('INSERT OR IGNORE INTO {async_meta}(name,value) VALUES (?,?)', `probe_retry:${fingerprint}`, String(now))
+          : await ctx.db.run(`INSERT INTO {async_meta}(name,value) VALUES ('probe_lock',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value WHERE CAST(value AS INTEGER)<?`, String(now + 1800000), String(now))
         if (!lock.changes) return json({ message: '已执行过核验，请点击刷新读取结果；失败权限可30分钟后重新检查。' })
         for (const model of MODEL_IDS) {
           const previous = await metaGet<Probe>(ctx, `model:${model}`)
+          if (retry && (previous?.fingerprint !== fingerprint || previous.status !== 'failed')) continue
           if (previous?.fingerprint === fingerprint && previous.id && (previous.retrieved || previous.status === 'in_progress')) continue
           try {
-            const result = await createInteraction('只回复“权限检查通过”。', { ...config, model, maxOutputTokens: 64 }, fetcher)
+            const result = await createInteraction('只回复“权限检查通过”。', { ...config, model }, fetcher)
             await metaPut(ctx, `model:${model}`, { id: result.id, fingerprint, retrieved: false, status: String(result.status) })
           } catch (error) { await metaPut(ctx, `model:${model}`, { fingerprint, retrieved: false, status: 'failed', code: code(error) }) }
         }
