@@ -32,7 +32,8 @@ export class TavilyError extends Error {
 
 // 无第二次模型判定。规则只看当前问题，可能漏判；/search 可强制检索。
 export function needsSearch(question: string): boolean {
-  return /新闻|最新|实时|时事|近况|动态|刚刚|今天|今日|昨天|昨日|这几天|本周|这周|最近.{0,16}(?:消息|情况|发生|进展|怎么样)|(?:现在|目前|当前).{0,16}(?:价格|股价|汇率|天气|比分|排名|消息|情况)|(?:查一下|查查|搜索|搜一下|联网)|\b(?:latest|news|today|current|real[ -]?time)\b/iu.test(question)
+  if (/(?:不要|无需|不必|不用|禁止|不)(?:联网|上网|搜索|检索)/u.test(question)) return false
+  return /新闻|最新|实时|时事|近况|动态|刚刚|今天|今日|昨天|昨日|这几天|本周|这周|最近.{0,16}(?:消息|情况|发生|进展|怎么样)|(?:现在|目前|当前).{0,16}(?:价格|股价|汇率|天气|比分|排名|消息|情况)|(?:查一下|查查|查询|查找|检索|搜索|搜一下|搜搜|搜一搜|(?:帮我|给我|替我)搜|联网|上网|网上查)|\b(?:latest|news|today|current|real[ -]?time|search|look\s+up)\b/iu.test(question)
 }
 
 // 尝试发送前预留一次，失败也计数；KV 最终一致，不能声称是账户费用的绝对上限。

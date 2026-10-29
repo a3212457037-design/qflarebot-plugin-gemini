@@ -60,7 +60,7 @@ export function interactionBody(question: string, config: Config, history: ChatM
     // 使用本地六轮文本历史显式重建 Step；不使用无限累加的 previous_interaction_id。
     input: [...history.slice(-12).map((m) => ({ type: m.role === 'user' ? 'user_input' : 'model_output', content: [{ type: 'text', text: clean(m.parts[0].text) }] })),
       { type: 'user_input', content: [{ type: 'text', text: clean(question) }, ...(search ? [{ type: 'text', text: clean(JSON.stringify({ untrustedSearchResults: search })) }] : [])] }],
-    system_instruction: systemInstruction(!!search),
+    system_instruction: systemInstruction(!!search, config.enableTavilySearch && !!config.tavilyApiKey),
     generation_config: { max_output_tokens: config.maxOutputTokens, thinking_level: 'high', thinking_summaries: 'none' },
   }
 }

@@ -73,8 +73,8 @@ describe('Tavily REST 与响应校验', () => {
 })
 
 describe('自动规则与共享聊天路径', () => {
-  it.each(['今天有什么新闻', '最新动态', '实时汇率', '现在天气怎么样', '最近有什么进展', '查一下资料', 'latest news'])('时效问题需要搜索：%s', (text) => expect(needsSearch(text)).toBe(true))
-  it.each(['你好', '讲个笑话', '解释牛顿定律', '谢谢'])('普通聊天不搜索：%s', (text) => expect(needsSearch(text)).toBe(false))
+  it.each(['今天有什么新闻', '最新动态', '实时汇率', '现在天气怎么样', '最近有什么进展', '查一下资料', 'latest news', '上网查一下这个人的资料', '帮我搜刘慈欣', '搜搜量子计算', '搜一搜相关论文', '查找官方文档', '查询天气', 'search QFlareBot', 'look up QFlareBot'])('时效问题需要搜索：%s', (text) => expect(needsSearch(text)).toBe(true))
+  it.each(['你好', '讲个笑话', '解释牛顿定律', '谢谢', '请分析幻方，不联网', '不要上网，直接解释', '不用搜索，讲讲历史'])('普通聊天不搜索：%s', (text) => expect(needsSearch(text)).toBe(false))
   it('关闭时普通时效问题仍只聊 Gemini，/search 明确提示关闭', async () => {
     const bot = harness(); bot.ctx.config.enableTavilySearch = false
     expect(await bot.invoke()).toBe(searchTips.disabled)
@@ -98,6 +98,7 @@ describe('自动规则与共享聊天路径', () => {
       const body = JSON.parse(bot.fetcher.mock.calls[1]![1]!.body as string)
       expect(body).not.toHaveProperty('tools')
       expect(body.systemInstruction.parts[0].text).toContain('不可信外部网页资料')
+      expect(body.systemInstruction.parts[0].text).toContain('已通过 Tavily 完成本轮联网检索')
       expect(body.contents[0].parts[0].text).toBe('最新新闻')
       expect(body.contents[0].parts[1].text).toContain('untrustedSearchResults')
     }

@@ -243,6 +243,33 @@ describe('持久化、自动投递及隔离', () => {
     const value=await normalizePlugin(createGeminiPlugin(failed.fetcher)).commands.find(c=>c.name==='search')!.handler({ctx:failCtx,session:failed.session,argText:'新闻',args:[],command:'search'})
     expect(value).toContain('搜索额度不足'); expect(failed.fetcher).toHaveBeenCalledTimes(1); expect((await failed.task())!.state).toBe('failed')
   })
+  it.each(['上网查一下量子计算', '帮我搜今日科技新闻', '搜搜最新消息'])('后台普通文本自动搜索并在新实例轮询后附真实来源：%s', async (question) => {
+    const b = await harness(); const searchConfig = { ...config, enableTavilySearch: true }
+    const ctx = { ...b.ctx, config: searchConfig }
+    b.fetcher.mockImplementation(async (url, init) => String(url).includes('tavily')
+      ? Response.json({ results: [{ title: '真实资料', url: 'https://source.test/', content: '外部资料内容' }] })
+      : init?.method === 'POST' ? Response.json({ id: 'v1_test', status: 'in_progress' }) : Response.json(result()))
+    const plugin = createGeminiPlugin(b.fetcher)
+    await normalizePlugin(plugin).regex[0]!.handler({ ctx, session: { ...b.session, content: question }, match: ['上'] })
+    expect(b.fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://api.tavily.com/search', INTERACTIONS_URL])
+    const body = JSON.parse(b.fetcher.mock.calls[1]![1]!.body as string)
+    expect(body.input.at(-1).content[1].text).toContain('untrustedSearchResults')
+    expect(body.system_instruction).toContain('已通过 Tavily 完成本轮联网检索')
+    await createGeminiPlugin(b.fetcher).cron!.background!.handler({ ctx, job: 'background', scheduledAt: Date.now() })
+    expect(ctx.api.sendMessage).toHaveBeenCalledTimes(1)
+    expect((ctx.api.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toContain('来源：\n真实资料 https://source.test/')
+  })
+  it('后台普通闲聊不搜索，但准确告知插件搜索能力；明确不联网也不搜索', async () => {
+    for (const question of ['你好', '请分析幻方，不联网']) {
+      const b = await harness(); const ctx = { ...b.ctx, config: { ...config, enableTavilySearch: true } }
+      await normalizePlugin(createGeminiPlugin(b.fetcher)).regex[0]!.handler({ ctx, session: { ...b.session, content: question }, match: ['你'] })
+      expect(b.fetcher).toHaveBeenCalledTimes(1)
+      const body = JSON.parse(b.fetcher.mock.calls[0]![1]!.body as string)
+      expect(body.system_instruction).toContain('本轮没有执行检索')
+      expect(body.system_instruction).toContain('支持插件侧 Tavily 搜索')
+      expect(body.input.at(-1).content).toHaveLength(1)
+    }
+  })
   it('回调最多投递一段，Cron自动继续已持久化进度，不要求用户主动领取', async () => {
     const b=await harness();await b.invoke();b.fetcher.mockResolvedValue(Response.json(result('v1_test','中'.repeat(1000))))
     await processBackground(b.ctx,config,b.fetcher,'v1_test',1)
