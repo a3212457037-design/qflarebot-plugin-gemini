@@ -20,11 +20,11 @@ const { outputFiles } = await build({
             calls++;
             return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Workers 回答成功' }] } }] });
           });
-          const result = await plugin.commands.ai.handler({
-            session: { scene: url.pathname.slice(1), atMe: url.searchParams.get('at') === '1', canReply: true, botId: 'test', userId: 'test' },
-            ctx: { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000 }, logger: { warn() {} } },
-            argText: '你好'
-          });
+          const session = { scene: url.pathname.slice(1), event: 'qq.c2c.message', attachments: [], content: '你好', atMe: url.searchParams.get('at') === '1', canReply: true, botId: 'test', userId: 'test' };
+          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000 }, logger: { warn() {} } };
+          const result = url.searchParams.get('mode') === 'text'
+            ? await plugin.regex[0].handler({ session, ctx, match: ['你'] })
+            : await plugin.commands.ai.handler({ session, ctx, argText: '你好' });
           return Response.json({ reply: result ?? null, calls });
         }
       };
@@ -38,13 +38,15 @@ const options = {
 }
 const mf = new Miniflare(typeof convertV4MiniflareOptions === 'function' ? convertV4MiniflareOptions(options) : options)
 try {
-  for (const scene of ['c2c', 'group']) {
-    const result = await (await mf.dispatchFetch(`https://smoke.test/${scene}?at=1`)).json()
-    assert.deepEqual(result, { reply: 'Workers 回答成功', calls: 1 })
+  for (const mode of ['command', 'text']) {
+    for (const scene of ['c2c', 'group']) {
+      const result = await (await mf.dispatchFetch(`https://smoke.test/${scene}?at=1&mode=${mode}`)).json()
+      assert.deepEqual(result, { reply: 'Workers 回答成功', calls: 1 })
+    }
+    const skipped = await (await mf.dispatchFetch(`https://smoke.test/group?at=0&mode=${mode}`)).json()
+    assert.deepEqual(skipped, { reply: null, calls: 0 })
   }
-  const skipped = await (await mf.dispatchFetch('https://smoke.test/group?at=0')).json()
-  assert.deepEqual(skipped, { reply: null, calls: 0 })
-  console.log('本地 workerd：私聊、群 @、未 @ 忽略，3 项通过（未连接 Google / QQ）')
+  console.log('本地 workerd：命令与普通文本的私聊、群 @、未 @ 忽略，6 项通过（未连接 Google / QQ）')
 } finally {
   await mf.dispose()
 }

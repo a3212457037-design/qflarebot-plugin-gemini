@@ -6,6 +6,7 @@ export interface Config {
   maxReplyChars: number
   maxOutputTokens: number
   timeoutMs: number
+  ignoredCommandPrefixes: string[]
 }
 
 export const MODEL = 'gemini-3.5-flash-lite'
@@ -16,6 +17,7 @@ export const defaultConfig: Config = {
   maxReplyChars: 400,
   maxOutputTokens: 512,
   timeoutMs: 15000,
+  ignoredCommandPrefixes: ['/'],
 }
 
 const ranges = {
@@ -42,6 +44,11 @@ export const configSchema: JsonSchema = {
     maxReplyChars: integer('maxReplyChars', '回复字符上限'),
     maxOutputTokens: integer('maxOutputTokens', '生成 Token 上限'),
     timeoutMs: integer('timeoutMs', 'API 超时（毫秒，最多 15000）'),
+    ignoredCommandPrefixes: {
+      type: 'array', title: '跳过的命令前缀', default: ['/'], maxItems: 16,
+      items: { type: 'string', minLength: 1, maxLength: 32 },
+      description: '普通聊天不会处理这些前缀开头的消息。默认无需更改；若机器人使用自定义命令前缀，请同步填写。SDK 不提供全局前缀读取接口。/ 始终跳过。',
+    },
   },
   required: ['apiKey', ...Object.keys(ranges)],
 }
@@ -53,6 +60,8 @@ export function readConfig(value: Config): Config | null {
   if (typeof config.apiKey !== 'string' || config.apiKey.length > 4096) return null
   config.apiKey = config.apiKey.trim()
   if (/[\u0000-\u0020\u007f-\u009f]/u.test(config.apiKey)) return null
+  if (!Array.isArray(config.ignoredCommandPrefixes) || config.ignoredCommandPrefixes.length > 16
+    || config.ignoredCommandPrefixes.some((prefix) => typeof prefix !== 'string' || !prefix.length || prefix.length > 32)) return null
   for (const key of Object.keys(ranges) as Array<keyof typeof ranges>) {
     const v = config[key]
     if (!Number.isSafeInteger(v) || v < ranges[key][0] || v > ranges[key][1]) return null

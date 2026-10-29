@@ -18,7 +18,17 @@
       ]
     }
   ],
-  "regex": [],
+  "regex": [
+    {
+      "pattern": "\\S",
+      "scenes": [
+        "c2c",
+        "group"
+      ],
+      "priority": -100,
+      "block": false
+    }
+  ],
   "events": [],
   "buttons": [],
   "cron": [],
@@ -66,6 +76,20 @@
         "default": 15000,
         "minimum": 1000,
         "maximum": 15000
+      },
+      "ignoredCommandPrefixes": {
+        "type": "array",
+        "title": "跳过的命令前缀",
+        "default": [
+          "/"
+        ],
+        "maxItems": 16,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "description": "普通聊天不会处理这些前缀开头的消息。默认无需更改；若机器人使用自定义命令前缀，请同步填写。SDK 不提供全局前缀读取接口。/ 始终跳过。"
       }
     },
     "required": [
@@ -81,6 +105,9 @@
     "maxInputChars": 500,
     "maxReplyChars": 400,
     "maxOutputTokens": 512,
-    "timeoutMs": 15000
+    "timeoutMs": 15000,
+    "ignoredCommandPrefixes": [
+      "/"
+    ]
   }
 }
