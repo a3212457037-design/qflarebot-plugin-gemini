@@ -1,7 +1,7 @@
 import type { PluginContext, Route } from '@qqbot/sdk'
 import { readConfig, type Config } from './config.js'
 import { ACTIVE, ensureBackground, metaGet, metaPut, processBackground } from './background.js'
-import { createInteraction, getInteraction, googleJson, keyFingerprint, object, validInteractionId, verifyCallback } from './interactions.js'
+import { createInteraction, getInteraction, googleJson, interactionFailure, keyFingerprint, object, validInteractionId, verifyCallback } from './interactions.js'
 import { MODEL_IDS } from './models.js'
 import { GeminiError } from './gemini.js'
 
@@ -65,6 +65,7 @@ export function backgroundRoutes(fetcher: typeof fetch): Route<Config>[] {
               const result = await getInteraction(probe.id, config, fetcher)
               probe.status = String(result.status)
               probe.retrieved = ['completed', 'incomplete'].includes(probe.status)
+              if (probe.status === 'failed') probe.code = interactionFailure(result)
               await metaPut(ctx, `model:${model}`, probe)
             } catch (error) { probe.code = code(error); await metaPut(ctx, `model:${model}`, probe) }
           }
@@ -90,7 +91,7 @@ export function backgroundRoutes(fetcher: typeof fetch): Route<Config>[] {
           // Google只返回一次的签名密钥保存在插件专属D1内，不送浏览器或日志。
           await metaPut(ctx, 'webhook', { id: result.id, secret: result.new_signing_secret, uri })
           return json({ message: '签名 Webhook 已注册并安全保存，Cron继续兜底。' })
-        } catch (error) { return json({ error: code(error), message: '当前项目未成功注册回调；继续使用每分钟Cron，不开启计费。' }, 400) }
+        } catch (error) { return json({ error: code(error), ...(error instanceof GeminiError && error.api ? { api: error.api } : {}), message: '当前项目未成功注册回调；继续使用每分钟Cron，不开启计费。' }, 400) }
       } catch (error) { return json({ error: code(error) }, 503) }
     } },
     { method: 'POST', path: '/callback', auth: 'public', async handler({ ctx, request }) {

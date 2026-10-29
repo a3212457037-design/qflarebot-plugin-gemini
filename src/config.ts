@@ -65,7 +65,7 @@ export const configSchema: JsonSchema = {
     },
     timeoutMs: {
       ...integer('timeoutMs', 'API 超时（毫秒，最多 27000）'),
-      description: '搜索与模型调用合计最多 27 秒，为现有 Worker 的 30 秒后台执行窗口保留发送时间；不能靠提高 Token 上限延长平台执行时间。',
+      description: '普通generateContent模式的搜索与生成合计最多27秒。background模式仅对提交/查询HTTP各限最多8秒，不限制Google后台推理总时长；仍受QQ被动回复窗口约束。',
     },
     ignoredCommandPrefixes: {
       type: 'array', title: '跳过的命令前缀', default: ['/'], maxItems: 16,

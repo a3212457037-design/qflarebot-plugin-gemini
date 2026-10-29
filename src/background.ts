@@ -4,7 +4,7 @@ import { conversationKey, HISTORY_TTL_SECONDS, loadHistory, parseHistory, saveHi
 import { hideKey } from './grounding.js'
 import { MORE_TIP, pendingKeys, QQ_PART_BYTES, splitText } from './delivery.js'
 import { GeminiError, tips } from './gemini.js'
-import { createInteraction, getInteraction, interactionAnswer, keyFingerprint } from './interactions.js'
+import { createInteraction, getInteraction, interactionAnswer, interactionFailure, keyFingerprint } from './interactions.js'
 import type { ModelId } from './models.js'
 import type { SearchResult } from './tavily.js'
 
@@ -208,6 +208,7 @@ export async function processBackground(ctx: Ctx, config: Config, fetcher: typeo
           continue
         }
         const success = ['completed', 'incomplete'].includes(String(result.status))
+        if (!success) ctx.logger.warn('Gemini 后台任务失败', { code: interactionFailure(result) })
         const text = success ? interactionAnswer(result, config, payload.search) : 'AI 后台任务未能完成，请稍后重新提问。'
         if (!await current(ctx, task, 'polling')) continue
         await ctx.kv.put(`async:answer:${task.id}`, text, { ttl: HISTORY_TTL_SECONDS })

@@ -6,7 +6,7 @@ import { scopeSql } from '@qqbot/sdk/sqlScope'
 import { defaultConfig, readConfig, type Config } from '../src/config.js'
 import { createGeminiPlugin } from '../src/index.js'
 import { ensureBackground, metaPut, processBackground, reserveBackground, cancelBackground, type Task } from '../src/background.js'
-import { API_REVISION, createInteraction, getInteraction, interactionAnswer, INTERACTIONS_URL, keyFingerprint, verifyCallback } from '../src/interactions.js'
+import { API_REVISION, createInteraction, getInteraction, interactionAnswer, interactionFailure, INTERACTIONS_URL, keyFingerprint, verifyCallback } from '../src/interactions.js'
 import { conversationKey, loadHistory, message } from '../src/history.js'
 import { loadPending } from '../src/delivery.js'
 import { MODEL_IDS } from '../src/models.js'
@@ -52,6 +52,10 @@ async function harness(scene: 'c2c' | 'group' = 'c2c') {
 afterEach(() => vi.useRealTimers())
 
 describe('Interactions 官方 REST', () => {
+  it.each([['PERMISSION_DENIED','auth'],['RESOURCE_EXHAUSTED','rate'],['UNAVAILABLE','unavailable']])('异步资源失败%s只输出安全分类', (status, expected) => {
+    const error=interactionFailure({error:{code:status,message:config.apiKey,details:{secret:config.tavilyApiKey}}})
+    expect(error).toBe(expected);expect(error).not.toContain(config.apiKey)
+  })
   it.each(MODEL_IDS)('%s 提交 background/store/high，带六轮文本，不泄露 Key', async (model) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ id: 'v1_id', status: 'in_progress' }))
     const history = [message('user', '上轮'), message('model', '回答')]

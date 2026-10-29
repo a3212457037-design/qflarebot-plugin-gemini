@@ -11,6 +11,15 @@ export const API_REVISION = '2026-05-20'
 export const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 export const validInteractionId = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,1024}$/u.test(id)
 
+export function interactionFailure(result: Record<string, unknown>): string {
+  const error = object(result.error)
+  const statuses: Record<string, number> = { UNAUTHENTICATED: 401, PERMISSION_DENIED: 403, NOT_FOUND: 404, RESOURCE_EXHAUSTED: 429, DEADLINE_EXCEEDED: 504, UNAVAILABLE: 503, INTERNAL: 500, INVALID_ARGUMENT: 400 }
+  const reason = String(error.status ?? error.code ?? '').toUpperCase()
+  const status = statuses[reason] ?? (typeof error.code === 'number' && error.code >= 400 && error.code < 600 ? error.code : 400)
+  // 只返回既有固定错误分类，不回显模型/项目的 error.message/details。
+  return apiError(status, { error }).code
+}
+
 export async function googleJson(url: string, method: 'GET' | 'POST', config: Config, fetcher: typeof fetch, body?: unknown): Promise<Record<string, unknown>> {
   if (!url.startsWith(INTERACTIONS_URL) && url !== 'https://generativelanguage.googleapis.com/v1/webhooks') throw new GeminiError('request')
   const controller = new AbortController()
@@ -29,7 +38,10 @@ export async function googleJson(url: string, method: 'GET' | 'POST', config: Co
         let json: unknown
         try { json = await readJson(response, GEMINI_RESPONSE_BYTES) }
         catch (error) { if (!response.ok) throw apiError(response.status, null); throw error }
-        if (!response.ok || (object(json).error && !object(json).id)) throw apiError(response.ok ? 400 : response.status, json)
+        if (!response.ok || (object(json).error && !object(json).id)) {
+          const error = apiError(response.ok ? 400 : response.status, json)
+          throw new GeminiError(error.code, undefined, error.api ?? { status: response.status, reason: 'HTTP_ERROR' })
+        }
         return object(json)
       })(),
       new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new GeminiError('timeout')) }, Math.min(config.timeoutMs, 8000)) }),
