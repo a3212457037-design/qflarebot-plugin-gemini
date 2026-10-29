@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "apiVersion": 4,
   "permissions": [
-    "net"
+    "net",
+    "kv"
   ],
   "depends": {},
   "conflicts": [],
@@ -12,6 +13,15 @@
       "name": "ai",
       "description": "向 AI 提问",
       "usage": "/ai <问题>",
+      "scenes": [
+        "c2c",
+        "group"
+      ]
+    },
+    {
+      "name": "reset",
+      "description": "清除当前对话历史",
+      "usage": "/reset",
       "scenes": [
         "c2c",
         "group"
@@ -37,7 +47,7 @@
   "services": [],
   "durableObjects": [],
   "displayName": "Gemini 文本问答",
-  "description": "通过 Gemini 进行单轮中文文本问答",
+  "description": "通过 Gemini 进行中文文本问答，支持会话上下文与可选联网搜索",
   "configSchema": {
     "type": "object",
     "properties": {
@@ -90,6 +100,12 @@
           "maxLength": 32
         },
         "description": "普通聊天不会处理这些前缀开头的消息。默认无需更改；若机器人使用自定义命令前缀，请同步填写。SDK 不提供全局前缀读取接口。/ 始终跳过。"
+      },
+      "enableGoogleSearch": {
+        "type": "boolean",
+        "title": "启用 Google Search 联网搜索",
+        "default": false,
+        "description": "默认关闭。启用后由 Gemini 决定是否搜索，最多附加 2 个来源。此模型的免费 API 层不提供搜索，可能需要项目权限并产生费用；插件不会修改计费设置。"
       }
     },
     "required": [
@@ -108,6 +124,7 @@
     "timeoutMs": 15000,
     "ignoredCommandPrefixes": [
       "/"
-    ]
+    ],
+    "enableGoogleSearch": false
   }
 }

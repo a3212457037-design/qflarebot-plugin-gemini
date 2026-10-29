@@ -1,7 +1,7 @@
 {
   "name": "qflarebot-plugin-gemini",
   "version": "0.1.0",
-  "description": "QFlareBot 的 Gemini 单轮文本问答插件",
+  "description": "QFlareBot 的 Gemini 文本问答插件，支持上下文与可选联网搜索",
   "license": "MIT",
   "type": "module",
   "keywords": ["qflarebot-plugin", "gemini"],

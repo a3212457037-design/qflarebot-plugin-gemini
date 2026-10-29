@@ -72,15 +72,22 @@ describe('QQ 文本问答', () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
-  it('不保存或携带上一轮问答', async () => {
+  it('共用 KV 时第二轮携带上一轮完整问答', async () => {
     vi.useFakeTimers()
     const fetcher = fake()
     const plugin = createGeminiPlugin(fetcher)
-    await runCommand(plugin, 'ai', '第一题', { ctx: { config } })
+    const ctx = createMockContext(plugin, { config })
+    const command = normalizePlugin(plugin).commands[0]!
+    const ask = (argText: string) => command.handler({ session: createMockSession(), ctx, command: 'ai', args: [argText], argText })
+    await ask('第一题')
     await vi.advanceTimersByTimeAsync(10001)
-    await runCommand(plugin, 'ai', '第二题', { ctx: { config } })
+    await ask('第二题')
     const body = JSON.parse(fetcher.mock.calls[1]![1]!.body as string)
-    expect(body.contents).toEqual([{ role: 'user', parts: [{ text: '第二题' }] }])
+    expect(body.contents).toEqual([
+      { role: 'user', parts: [{ text: '第一题' }] },
+      { role: 'model', parts: [{ text: '你好，我是上分难。' }] },
+      { role: 'user', parts: [{ text: '第二题' }] },
+    ])
   })
 
   it('并发忙碌保护、全机器人冷却和跨群用户冷却', async () => {

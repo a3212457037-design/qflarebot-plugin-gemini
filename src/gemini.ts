@@ -1,6 +1,8 @@
 // Gemini 请求和文本 part 解析改编自 clown145/qflarebot-plugin-llm（MIT）。
 // 来源、提交和完整许可见 THIRD_PARTY_NOTICES.md、licenses/。
 import { ENDPOINT, type Config } from './config.js'
+import { appendSources, hideKey } from './grounding.js'
+import type { ChatMessage } from './history.js'
 
 export type ErrorCode = 'timeout' | 'rate' | 'quota' | 'auth' | 'model' | 'request' | 'unavailable' | 'network' | 'response' | 'blocked'
 
@@ -105,7 +107,7 @@ export function limitReply(text: string, maxChars: number, incomplete = false): 
   return result.trimEnd() + INCOMPLETE
 }
 
-export async function askGemini(question: string, config: Config, fetcher: typeof fetch = fetch): Promise<string> {
+export async function askGemini(question: string, config: Config, fetcher: typeof fetch = fetch, history: ChatMessage[] = []): Promise<string> {
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
@@ -121,7 +123,8 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
       headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },
       signal: controller.signal,
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: question }] }],
+        contents: [...history.slice(-12), { role: 'user', parts: [{ text: question }] }],
+        ...(config.enableGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
         systemInstruction: { parts: [{ text: `你是 QQ 机器人“上分难”的文字问答助手。用简短中文和纯文本回答，尽量不超过 ${config.maxReplyChars} 字符。` }] },
         generationConfig: { maxOutputTokens: config.maxOutputTokens },
       }),
@@ -150,11 +153,11 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
       const p = record(part)
       return p.thought !== true && typeof p.text === 'string' ? p.text : ''
     }).join('')
-    const safeText = text.split(config.apiKey).join('[密钥已隐藏]')
+    const safeText = hideKey(text, config.apiKey)
     if (!safeText.trim()) throw new GeminiError('response')
     const reply = limitReply(safeText, config.maxReplyChars, reason === 'MAX_TOKENS')
     if (!reply.trim()) throw new GeminiError('response')
-    return reply
+    return config.enableGoogleSearch ? appendSources(reply, candidate.groundingMetadata, config.maxReplyChars, config.apiKey) : reply
   }
   try {
     return await Promise.race([request(), timeout])

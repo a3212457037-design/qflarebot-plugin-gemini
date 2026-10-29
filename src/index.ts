@@ -2,12 +2,15 @@ import { definePlugin, isMessageEvent } from '@qqbot/sdk'
 import type { CommandInput } from '@qqbot/sdk'
 import { configSchema, defaultConfig, readConfig, type Config } from './config.js'
 import { askGemini, GeminiError, tips } from './gemini.js'
+import { conversationKey, loadHistory, saveHistory, type ChatMessage } from './history.js'
 
 export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(...args)) {
   // 只保存冷却时间，不保存问答。Worker isolate 重建或扩容后会重置，非全局强限流。
   const users = new Map<string, number>()
   let busy = false
   let nextRequestAt = 0
+  let activeHistoryKey: string | null = null
+  let resetDuringRequest = false
 
   async function chat({ session, ctx, argText }: Pick<CommandInput<Config>, 'session' | 'ctx' | 'argText'>) {
     if (session.scene !== 'c2c' && session.scene !== 'group') return
@@ -29,8 +32,25 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     users.set(user, now + 10000)
     nextRequestAt = now + 6000
     busy = true
+    const key = conversationKey(session)
+    activeHistoryKey = key
+    resetDuringRequest = false
     try {
-      return await askGemini(question, config, fetcher)
+      let history: ChatMessage[] = []
+      if (key) {
+        try { history = await loadHistory(ctx.kv, key) }
+        catch { ctx.logger.warn('Gemini 历史读取失败', { code: 'history_read' }) }
+      }
+      if (resetDuringRequest) history = []
+      const reply = await askGemini(question, config, fetcher, history)
+      if (key && !resetDuringRequest) {
+        try {
+          await saveHistory(ctx.kv, key, history, question, reply)
+          // /reset 若发生在 KV 写入期间，写入完成后再次删除，避免恢复已重置的历史。
+          if (resetDuringRequest) await ctx.kv.delete(key)
+        } catch { ctx.logger.warn('Gemini 历史保存失败', { code: 'history_write' }) }
+      }
+      return reply
     } catch (error) {
       const code = error instanceof GeminiError ? error.code : 'unavailable'
       ctx.logger.warn('Gemini 请求未完成', {
@@ -39,6 +59,7 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
       })
       return tips[code]
     } finally {
+      activeHistoryKey = null
       busy = false
     }
   }
@@ -47,8 +68,8 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     name: 'gemini',
     apiVersion: 4,
     displayName: 'Gemini 文本问答',
-    description: '通过 Gemini 进行单轮中文文本问答',
-    permissions: ['net'],
+    description: '通过 Gemini 进行中文文本问答，支持会话上下文与可选联网搜索',
+    permissions: ['net', 'kv'],
     configSchema,
     defaultConfig,
     commands: {
@@ -57,6 +78,26 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
         usage: '/ai <问题>',
         scenes: ['c2c', 'group'],
         handler: chat,
+      },
+      reset: {
+        description: '清除当前对话历史',
+        usage: '/reset',
+        scenes: ['c2c', 'group'],
+        async handler({ session, ctx }) {
+          if (session.scene !== 'c2c' && session.scene !== 'group') return
+          if (session.scene === 'group' && !session.atMe) return
+          if (!session.canReply) return
+          const key = conversationKey(session)
+          if (!key) return '无法识别当前会话，请稍后再试。'
+          if (activeHistoryKey === key) resetDuringRequest = true
+          try {
+            await ctx.kv.delete(key)
+            return '当前会话的对话历史已清除。'
+          } catch {
+            ctx.logger.warn('Gemini 历史重置失败', { code: 'history_reset' })
+            return '暂时无法清除对话历史，请稍后再试。'
+          }
+        },
       },
     },
     regex: [{

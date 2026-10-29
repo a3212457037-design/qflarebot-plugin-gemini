@@ -16,16 +16,30 @@ const { outputFiles } = await build({
         async fetch(request) {
           const url = new URL(request.url);
           let calls = 0;
-          const plugin = createGeminiPlugin(async () => {
+          let sent;
+          const plugin = createGeminiPlugin(async (_url, init) => {
             calls++;
-            return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Workers 回答成功' }] } }] });
+            sent = JSON.parse(init.body);
+            return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Workers 回答成功' }] }, groundingMetadata: { groundingChunks: [{web: {uri: 'https://source.test/', title: '来源'}}] } }] });
           });
-          const session = { scene: url.pathname.slice(1), event: 'qq.c2c.message', attachments: [], content: '你好', atMe: url.searchParams.get('at') === '1', canReply: true, botId: 'test', userId: 'test' };
-          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000 }, logger: { warn() {} } };
+          const scene = url.pathname.slice(1);
+          const atMe = url.searchParams.get('at') === '1';
+          const session = { scene, event: scene === 'c2c' ? 'qq.c2c.message' : atMe ? 'qq.group.at_message' : 'qq.group.message', targetId: scene === 'group' ? 'test-group' : 'test', attachments: [], content: '你好', atMe, canReply: true, botId: 'test', userId: 'test' };
+          const data = new Map();
+          const writes = [];
+          const ctx = { config: { apiKey: 'local-test-credential', maxInputChars: 500, maxReplyChars: 400, maxOutputTokens: 512, timeoutMs: 15000, enableGoogleSearch: url.searchParams.get('search') === '1' }, logger: { warn() {} }, kv: {
+            async get(key) { return data.get(key) ?? null; },
+            async put(key, value, options) { data.set(key, JSON.stringify(value)); writes.push({ value, options }); },
+            async delete(key) { data.delete(key); }
+          } };
+          if (url.searchParams.get('mode') === 'reset') {
+            const result = await plugin.commands.reset.handler({ session, ctx, argText: '' });
+            return Response.json({ reply: result ?? null, calls, entries: data.size });
+          }
           const result = url.searchParams.get('mode') === 'text'
             ? await plugin.regex[0].handler({ session, ctx, match: ['你'] })
             : await plugin.commands.ai.handler({ session, ctx, argText: '你好' });
-          return Response.json({ reply: result ?? null, calls });
+          return Response.json({ reply: result ?? null, calls, writes, tools: sent?.tools ?? null });
         }
       };
     `,
@@ -41,12 +55,21 @@ try {
   for (const mode of ['command', 'text']) {
     for (const scene of ['c2c', 'group']) {
       const result = await (await mf.dispatchFetch(`https://smoke.test/${scene}?at=1&mode=${mode}`)).json()
-      assert.deepEqual(result, { reply: 'Workers 回答成功', calls: 1 })
+      assert.equal(result.reply, 'Workers 回答成功')
+      assert.equal(result.calls, 1)
+      assert.equal(result.tools, null)
+      assert.deepEqual(result.writes[0].options, { ttl: 86400 })
+      assert.equal(result.writes[0].value.messages.length, 2)
     }
     const skipped = await (await mf.dispatchFetch(`https://smoke.test/group?at=0&mode=${mode}`)).json()
-    assert.deepEqual(skipped, { reply: null, calls: 0 })
+    assert.deepEqual(skipped, { reply: null, calls: 0, writes: [], tools: null })
   }
-  console.log('本地 workerd：命令与普通文本的私聊、群 @、未 @ 忽略，6 项通过（未连接 Google / QQ）')
+  const search = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&search=1')).json()
+  assert.deepEqual(search.tools, [{ google_search: {} }])
+  assert.equal(search.reply, 'Workers 回答成功\n来源：\n来源 https://source.test/')
+  const reset = await (await mf.dispatchFetch('https://smoke.test/c2c?at=1&mode=reset')).json()
+  assert.deepEqual(reset, { reply: '当前会话的对话历史已清除。', calls: 0, entries: 0 })
+  console.log('本地 workerd：8 项通过，覆盖普通文本、命令、KV/TTL、Search 与 reset（未连接 Google / QQ）')
 } finally {
   await mf.dispose()
 }

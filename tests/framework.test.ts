@@ -100,7 +100,7 @@ describe('QFlareBot v0.6.1 真实标准化与 dispatcher', () => {
     expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string).contents[0].parts).toEqual([{ text: '你好' }])
   })
 
-  it.each(['/unknown 你好', '/t2i 内容', '/ai', '', '  \n\t', '/SID', 'sid', 'other', '/other', 'quiet'])('普通文本规则不会截获命令或空消息：%j', async (text) => {
+  it.each(['/unknown 你好', '/t2i 内容', '/ai', '/reset', '', '  \n\t', '/SID', 'sid', 'other', '/other', 'quiet'])('普通文本规则不会截获命令或空消息：%j', async (text) => {
     const { replies, fetcher, report } = await deliver('C2C_MESSAGE_CREATE', text)
     expect(fetcher).not.toHaveBeenCalled()
     expect(replies.length).toBeLessThanOrEqual(1)
@@ -140,6 +140,21 @@ describe('QFlareBot v0.6.1 真实标准化与 dispatcher', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it.each([['第一题', '/ai 第二题'], ['/ai 第一题', '第二题']])('普通文本与 /ai 共享历史：%s → %s', async (first, second) => {
+    vi.useFakeTimers()
+    try {
+      const bot = harness()
+      expect((await bot.deliver('C2C_MESSAGE_CREATE', first)).replies).toEqual(['你好。'])
+      await vi.advanceTimersByTimeAsync(10001)
+      expect((await bot.deliver('C2C_MESSAGE_CREATE', second)).replies).toEqual(['你好。'])
+      expect(JSON.parse(bot.fetcher.mock.calls[1]![1]!.body as string).contents).toEqual([
+        { role: 'user', parts: [{ text: '第一题' }] },
+        { role: 'model', parts: [{ text: '你好。' }] },
+        { role: 'user', parts: [{ text: '第二题' }] },
+      ])
+    } finally { vi.useRealTimers() }
+  })
+
   it.each(['!unknown 你好', 'cmd:unknown 你好', '/unknown 你好', '!sid', '!other'])('同步自定义命令前缀后跳过 %s', async (text) => {
     const bot = harness(undefined, ['!', 'cmd:'], { ...config, ignoredCommandPrefixes: ['!', 'cmd:'] })
     const { replies, fetcher, report } = await bot.deliver('C2C_MESSAGE_CREATE', text)
@@ -169,7 +184,7 @@ describe('官方配置校验和 writeOnly 机制', () => {
   })
 
   it('旧配置自动补齐前缀默认值，保留原 Key，不要求迁移', () => {
-    const { ignoredCommandPrefixes: _prefixes, ...oldConfig } = config
+    const { ignoredCommandPrefixes: _prefixes, enableGoogleSearch: _search, ...oldConfig } = config
     expect(validateConfig(configSchema, oldConfig)).toEqual([])
     expect(withConfigDefaults(oldConfig, defaultConfig, configSchema)).toEqual(config)
   })
