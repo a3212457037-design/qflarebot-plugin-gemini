@@ -1,0 +1,86 @@
+{
+  "name": "gemini",
+  "version": "0.1.0",
+  "apiVersion": 4,
+  "permissions": [
+    "net"
+  ],
+  "depends": {},
+  "conflicts": [],
+  "commands": [
+    {
+      "name": "ai",
+      "description": "向 AI 提问",
+      "usage": "/ai <问题>",
+      "scenes": [
+        "c2c",
+        "group"
+      ]
+    }
+  ],
+  "regex": [],
+  "events": [],
+  "buttons": [],
+  "cron": [],
+  "routes": [],
+  "hasMiddleware": false,
+  "services": [],
+  "durableObjects": [],
+  "displayName": "Gemini 文本问答",
+  "description": "通过 Gemini 进行单轮中文文本问答",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "title": "Gemini API Key",
+        "writeOnly": true,
+        "maxLength": 4096,
+        "description": "在 [Google AI Studio](https://aistudio.google.com/api-keys) 创建。仅在此设置，不要发送到 QQ。保存后不回显。",
+        "default": ""
+      },
+      "maxInputChars": {
+        "type": "integer",
+        "title": "问题字符上限",
+        "default": 500,
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "maxReplyChars": {
+        "type": "integer",
+        "title": "回复字符上限",
+        "default": 400,
+        "minimum": 50,
+        "maximum": 500
+      },
+      "maxOutputTokens": {
+        "type": "integer",
+        "title": "生成 Token 上限",
+        "default": 512,
+        "minimum": 64,
+        "maximum": 1024
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "title": "API 超时（毫秒，最多 15000）",
+        "default": 15000,
+        "minimum": 1000,
+        "maximum": 15000
+      }
+    },
+    "required": [
+      "apiKey",
+      "maxInputChars",
+      "maxReplyChars",
+      "maxOutputTokens",
+      "timeoutMs"
+    ]
+  },
+  "defaultConfig": {
+    "apiKey": "",
+    "maxInputChars": 500,
+    "maxReplyChars": 400,
+    "maxOutputTokens": 512,
+    "timeoutMs": 15000
+  }
+}
