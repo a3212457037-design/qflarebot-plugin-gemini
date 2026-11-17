@@ -7,7 +7,7 @@ import { needsSearch, reserveSearch, searchTavily, TavilyError, SEARCH_INTERVAL_
 import { hideKey } from './grounding.js'
 import { deliverAnswer, deliverPending, loadPending, pendingKeys, GENERATION_BUDGET_MS, TURN_BUDGET_MS } from './delivery.js'
 import { resolveModel, parseModelChoice, saveModel, modelMenu, ModelStateError } from './models.js'
-import { abandonBackground, BackgroundError, cancelBackground, hasBackground, processBackground, reserveBackground, submitBackground, type Task } from './background.js'
+import { abandonBackground, BackgroundError, cancelBackground, hasBackground, pollBackgroundCron, reserveBackground, submitBackground, type Task } from './background.js'
 import { backgroundRoutes } from './background-panel.js'
 
 export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(...args)) {
@@ -120,10 +120,10 @@ export function createGeminiPlugin(fetcher: typeof fetch = (...args) => fetch(..
     defaultConfig,
     ui: { path: '/ui/', title: 'Gemini 后台任务', icon: 'Clock' },
     routes: backgroundRoutes(fetcher),
-    cron: { background: { cron: '* * * * *', async handler({ ctx }) {
+    cron: { background: { cron: '* * * * *', async handler({ ctx, scheduledAt }) {
       const config = readConfig(ctx.config)
       if (!config?.apiKey) return
-      try { await processBackground(ctx, config, fetcher) }
+      try { await pollBackgroundCron(ctx, config, fetcher, scheduledAt) }
       catch { ctx.logger.warn('Gemini 后台轮询不可用', { code: 'background_poll' }) }
     } } },
     commands: {

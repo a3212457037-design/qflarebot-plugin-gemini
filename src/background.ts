@@ -179,13 +179,43 @@ async function deliverTask(ctx: Ctx, task: Task, config: Config, maxSends: numbe
   else await ctx.db.run("UPDATE {async_tasks} SET lease=0 WHERE id=? AND token=? AND state='ready'", task.id, task.token)
 }
 
-export async function processBackground(ctx: Ctx, config: Config, fetcher: typeof fetch, interaction?: string, maxSends = Infinity): Promise<void> {
-  await ensureBackground(ctx)
+const BACKGROUND_POLL_MS = 20_000
+const CRON_CHECK_WINDOW_MS = 55_000
+
+export async function pollBackgroundCron(ctx: Ctx, config: Config, fetcher: typeof fetch, scheduledAt: number): Promise<void> {
+  const stopAt = Math.min(scheduledAt, Date.now()) + CRON_CHECK_WINDOW_MS
+  await processBackground(ctx, config, fetcher)
+  ctx.waitUntil(pollAgainBefore(ctx, config, fetcher, stopAt).catch(() => {
+    ctx.logger.warn('Gemini 后台轮询不可用', { code: 'background_poll' })
+  }))
+}
+
+async function pollAgainBefore(ctx: Ctx, config: Config, fetcher: typeof fetch, stopAt: number): Promise<void> {
+  // 额外轮询不阻塞框架按顺序派发的其他定时任务。
+  for (let round = 0; round < 2 && Date.now() < stopAt; round++) {
+    const next = await ctx.db.first<{ next_poll: number }>(`SELECT next_poll FROM {async_tasks}
+      WHERE bot=? AND state='pending' AND lease<=? AND next_poll<?
+      ORDER BY next_poll LIMIT 1`, ctx.botId, Date.now(), stopAt)
+    if (!next) return
+    const delay = next.next_poll - Date.now()
+    if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay))
+    if (Date.now() >= stopAt) return
+    await processBackground(ctx, config, fetcher, undefined, Infinity, { maintenance: false })
+  }
+}
+
+export async function processBackground(
+  ctx: Ctx, config: Config, fetcher: typeof fetch, interaction?: string, maxSends = Infinity,
+  { maintenance = true } = {},
+): Promise<void> {
+  if (maintenance) await ensureBackground(ctx)
   const now = Date.now()
   await metaPut(ctx, 'last_cron_or_callback', now)
-  // 崩溃后的提交或发送结果未知，不重复创建/投递。轮询 GET 的过期租约则可以恢复。
-  await ctx.db.run("UPDATE {async_tasks} SET state='uncertain',updated=? WHERE bot=? AND state='sending' AND updated<?", now, ctx.botId, now - 90000)
-  await ctx.db.run("UPDATE {async_tasks} SET state='submit_unknown',updated=? WHERE bot=? AND state IN ('preparing','submitting') AND updated<?", now, ctx.botId, now - 90000)
+  if (maintenance) {
+    // 崩溃后的提交或发送结果未知，不重复创建/投递。轮询 GET 的过期租约则可以恢复。
+    await ctx.db.run("UPDATE {async_tasks} SET state='uncertain',updated=? WHERE bot=? AND state='sending' AND updated<?", now, ctx.botId, now - 90000)
+    await ctx.db.run("UPDATE {async_tasks} SET state='submit_unknown',updated=? WHERE bot=? AND state IN ('preparing','submitting') AND updated<?", now, ctx.botId, now - 90000)
+  }
   const rows = await ctx.db.all<Task>(`SELECT * FROM {async_tasks} WHERE bot=? AND
     (state IN ('pending','ready') OR (state='polling' AND lease<?)) AND next_poll<=? ${interaction ? 'AND interaction=?' : ''} ORDER BY created LIMIT 2`, ctx.botId, now, now, ...(interaction ? [interaction] : []))
   for (const task of rows) {
@@ -203,8 +233,8 @@ export async function processBackground(ctx: Ctx, config: Config, fetcher: typeo
       if (task.state !== 'ready') {
         const payload = await readPayload(ctx, task)
         const result = await getInteraction(task.interaction!, config, fetcher)
-        if (result.status === 'in_progress') {
-          await ctx.db.run("UPDATE {async_tasks} SET state='pending',lease=0,next_poll=?,updated=? WHERE id=? AND token=? AND state='polling'", Date.now() + 45000, Date.now(), task.id, token)
+        if (result.status === 'queued' || result.status === 'in_progress') {
+          await ctx.db.run("UPDATE {async_tasks} SET state='pending',lease=0,next_poll=?,updated=? WHERE id=? AND token=? AND state='polling'", Date.now() + BACKGROUND_POLL_MS, Date.now(), task.id, token)
           continue
         }
         const success = ['completed', 'incomplete'].includes(String(result.status))
@@ -228,5 +258,5 @@ export async function processBackground(ctx: Ctx, config: Config, fetcher: typeo
       await ctx.db.run("UPDATE {async_tasks} SET state=CASE WHEN state='polling' THEN 'pending' ELSE state END,lease=0,next_poll=?,error=?,updated=? WHERE id=? AND token=? AND state IN ('polling','ready')", Date.now() + 60000, code, Date.now(), task.id, token)
     }
   }
-  await ctx.db.run(`DELETE FROM {async_tasks} WHERE id IN (SELECT id FROM {async_tasks} WHERE bot=? AND updated<? AND state NOT IN ${ACTIVE} LIMIT 30)`, ctx.botId, now - 86400000)
+  if (maintenance) await ctx.db.run(`DELETE FROM {async_tasks} WHERE id IN (SELECT id FROM {async_tasks} WHERE bot=? AND updated<? AND state NOT IN ${ACTIVE} LIMIT 30)`, ctx.botId, now - 86400000)
 }
