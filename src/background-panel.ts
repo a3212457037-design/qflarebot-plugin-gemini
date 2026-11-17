@@ -11,7 +11,7 @@ const PAGE = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel=
 <p>权限检查每个模型只提交一次简短的后台问题，使用现有输出预算而非强制低Token截断，会使用少量 Token；不会开启计费。检查与读取均在 Worker 内使用已保存密钥。</p>
 <button id="probe">核验可选模型后台权限</button><button id="refresh">刷新权限及任务状态</button>
 <button id="retry">仅重查失败模型（当前Key限一次）</button>
-<p>Cron 每分钟自动轮询。可选注册 Google 签名回调加快完成通知；若项目拒绝，继续使用 Cron，不升级套餐。</p>
+<p>Cron 每分钟启动。有待完成任务时，约每 20 秒检查一次。可选注册 Google 签名回调加快完成通知；若项目拒绝，继续使用 Cron，不升级套餐。</p>
 <button id="webhook">注册完成/失败 Webhook</button><pre id="result">正在读取…</pre>
 <p>单聊原消息最多 60 分钟、群聊 5 分钟内被动回复；普通答案自动发送，过长剩余正文用 /more。/reset 会取消旧任务。发送结果不确定时不自动重发。</p>
 <script type="module">import {createBridge} from '/bridge.js';
