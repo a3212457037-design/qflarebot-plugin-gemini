@@ -144,7 +144,7 @@ export async function askGemini(question: string, config: Config, fetcher: typeo
         ] }],
         // Google 原生 Search 已停用，兼容旧配置也不发送 tools。
         systemInstruction: { parts: [{ text: systemInstruction(!!search, config.enableTavilySearch && !!config.tavilyApiKey) }] },
-        // 三个允许模型均支持 high；不同时发送旧 thinkingBudget。
+        // 允许的模型均支持 high；不同时发送旧 thinkingBudget。
         generationConfig: { maxOutputTokens: config.maxOutputTokens, thinkingConfig: { thinkingLevel: 'high' } },
       }),
     })

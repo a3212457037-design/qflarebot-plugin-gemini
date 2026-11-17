@@ -47,7 +47,7 @@ export const configSchema: JsonSchema = {
   properties: {
     executionMode: {
       type: 'string', title: '推理执行模式', enum: ['generateContent', 'background'], default: 'generateContent',
-      description: '普通模式保留原接口；background 在 Google 后台推理，由每分钟 Cron/可选 Webhook 自动回复。先在插件的后台任务页面核验当前 Key 的三个模型权限。需要现有 D1 和每分钟 Cron，群聊回复须在 5 分钟内完成。',
+      description: '普通模式保留原接口；background 在 Google 后台推理，由每分钟 Cron/可选 Webhook 自动回复。先在插件的后台任务页面核验当前 Key 对可选模型的权限。需要现有 D1 和每分钟 Cron，群聊回复须在 5 分钟内完成。',
     },
     model: {
       type: 'string', title: '默认聊天模型', enum: [...MODEL_IDS], default: MODEL,
