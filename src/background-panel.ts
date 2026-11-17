@@ -9,7 +9,7 @@ const PAGE = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel=
 <style>body{font:16px system-ui;padding:20px;line-height:1.6}button{margin:8px;padding:10px}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>
 <h2>Gemini 后台任务</h2><p>保留普通模式。先核验当前 Gemini Key 的真实后台权限，再在插件设置把推理执行模式选为 background。</p>
 <p>权限检查每个模型只提交一次简短的后台问题，使用现有输出预算而非强制低Token截断，会使用少量 Token；不会开启计费。检查与读取均在 Worker 内使用已保存密钥。</p>
-<button id="probe">核验三个模型后台权限</button><button id="refresh">刷新权限及任务状态</button>
+<button id="probe">核验可选模型后台权限</button><button id="refresh">刷新权限及任务状态</button>
 <button id="retry">仅重查失败模型（当前Key限一次）</button>
 <p>Cron 每分钟自动轮询。可选注册 Google 签名回调加快完成通知；若项目拒绝，继续使用 Cron，不升级套餐。</p>
 <button id="webhook">注册完成/失败 Webhook</button><pre id="result">正在读取…</pre>

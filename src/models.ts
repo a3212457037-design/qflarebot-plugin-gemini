@@ -3,7 +3,7 @@ import type { Config } from './config.js'
 import { conversationKey } from './history.js'
 
 // 已核实的文本 generateContent 模型；固定主机和枚举，不能通过模型名注入任意 URL。
-export const MODEL_IDS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'] as const
+export const MODEL_IDS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-4-hydrogen'] as const
 export type ModelId = typeof MODEL_IDS[number]
 export const MODEL_ORIGIN = 'https://generativelanguage.googleapis.com/v1beta/models/'
 export const isModelId = (value: unknown): value is ModelId => typeof value === 'string' && MODEL_IDS.includes(value as ModelId)
@@ -41,7 +41,7 @@ export async function resolveModel(ctx: PluginContext<Config>, session: Session,
 
 export function parseModelChoice(text: string): ModelId | null {
   const value = text.trim().toLowerCase()
-  if (/^[1-3]$/u.test(value)) return MODEL_IDS[Number(value) - 1]!
+  if (/^[1-9]\d*$/u.test(value)) return MODEL_IDS[Number(value) - 1] ?? null
   return isModelId(value) ? value : null
 }
 

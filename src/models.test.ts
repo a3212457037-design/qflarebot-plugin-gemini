@@ -82,7 +82,7 @@ describe('/model 当前会话选择', () => {
     expect(bot.ctx.kv.data.size).toBe(0)
     expect(bot.fetcher).not.toHaveBeenCalled()
   })
-  it.each([['1', MODEL_IDS[0]], ['2', MODEL_IDS[1]], ['3', MODEL_IDS[2]], ['GEMINI-3.8-FLASH', MODEL_IDS[2]]])('以 %s 保存 %s，下次聊天实际使用它', async (choice, model) => {
+  it.each([['1', MODEL_IDS[0]], ['2', MODEL_IDS[1]], ['3', MODEL_IDS[2]], ['4', MODEL_IDS[3]], ['GEMINI-4-HYDROGEN', MODEL_IDS[3]], ['GEMINI-3.8-FLASH', MODEL_IDS[2]]])('以 %s 保存 %s，下次聊天实际使用它', async (choice, model) => {
     const bot = harness()
     expect((await bot.invoke('model', choice)).value).toContain(model)
     expect(bot.ctx.config.model).toBe(MODEL)
@@ -159,7 +159,7 @@ describe('/model 当前会话选择', () => {
     const bot = harness(); expect((await bot.invoke('model', '2', { userId: '' })).value).toContain('无法识别')
     expect(bot.ctx.kv.data.size).toBe(0)
   })
-  it.each(['4', 'unknown', 'https://evil.test/', config.apiKey])('不接受任意模型或回显无效输入：%s', async (choice) => {
+  it.each(['5', 'unknown', 'https://evil.test/', config.apiKey])('不接受任意模型或回显无效输入：%s', async (choice) => {
     const bot = harness(); const result = (await bot.invoke('model', choice)).value
     expect(result).toContain('不在可选列表')
     expect(result).not.toContain(config.apiKey)
